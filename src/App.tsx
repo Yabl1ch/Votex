@@ -23,9 +23,12 @@ export const App: React.FC = () => {
     loadSavedVpsFromVault,
   } = useAppStore();
 
-  // Apply UI scale to root document
+  // Apply UI scale to body and root container
   useEffect(() => {
-    (document.documentElement.style as any).zoom = `${uiScale}%`;
+    const ratio = (uiScale / 100).toString();
+    if (document.body) {
+      (document.body.style as any).zoom = ratio;
+    }
   }, [uiScale]);
 
   // Set theme attribute on root element
@@ -48,18 +51,25 @@ export const App: React.FC = () => {
         unlisten = await listen<string>("ssh-log", (event) => {
           appendLog(event.payload);
 
-          // Update progress dynamically based on stream milestones
+          // Update progress dynamically based on real stream milestones
           const payload = event.payload;
-          if (payload.includes("[1/7]") || payload.includes("Pre-flight")) setProgress(15);
-          else if (payload.includes("[2/7]") || payload.includes("Харднинг")) setProgress(30);
-          else if (payload.includes("[3/7]") || payload.includes("Xray-core")) setProgress(50);
-          else if (payload.includes("[4/7]") || payload.includes("Конфигурация")) setProgress(70);
-          else if (payload.includes("[5/7]") || payload.includes("Бенчмарк")) setProgress(85);
-          else if (payload.includes("[6/7]") || payload.includes("Подписка")) setProgress(95);
-          else if (
+          if (payload.includes("[1/7]") || payload.includes("Шаг 1") || payload.includes("Pre-flight")) {
+            setProgress(15);
+          } else if (payload.includes("[2/7]") || payload.includes("Шаг 2") || payload.includes("зависимостей")) {
+            setProgress(30);
+          } else if (payload.includes("[3/7]") || payload.includes("Шаг 3") || payload.includes("харднинга") || payload.includes("Fail2ban")) {
+            setProgress(50);
+          } else if (payload.includes("[4/7]") || payload.includes("Шаг 4") || payload.includes("Xray-core")) {
+            setProgress(70);
+          } else if (payload.includes("[5/7]") || payload.includes("Шаг 5") || payload.includes("Генерация")) {
+            setProgress(85);
+          } else if (payload.includes("[6/7]") || payload.includes("Шаг 6") || payload.includes("бенчмарка")) {
+            setProgress(95);
+          } else if (
             payload.includes("VOTEX_JSON_REPORT_START") ||
             payload.includes("УСПЕШНО") ||
-            payload.includes("SUCCESS")
+            payload.includes("SUCCESS") ||
+            payload.includes("[7/7]")
           ) {
             setProgress(100);
           }

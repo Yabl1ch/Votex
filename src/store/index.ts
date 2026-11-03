@@ -177,7 +177,7 @@ export const initialSmartRoutes: SmartRouteItem[] = [
 export const defaultMockReport: VotexReport = {
   status: "active",
   server_ip: "89.125.126.90",
-  subscription_url: "https://89.125.126.90:18080/sub/9f8a3c2e1b4d5e6f7a8b9c0d1e2f3a4b",
+  subscription_url: "http://89.125.126.90:18080/sub/9f8a3c2e1b4d5e6f7a8b9c0d1e2f3a4b",
   subscription_token: "9f8a3c2e1b4d5e6f7a8b9c0d1e2f3a4b",
   uuid: "d39eb05f-b8c1-4bb2-9149-ece532946204",
   reality_public_key: "K8z9xL2pQ1vR4sT7uW0yA3bC6eH9jM1oP4rS7tU0wXA",
@@ -209,8 +209,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   setUiScale: (uiScale: number) => {
     const clamped = Math.min(130, Math.max(80, uiScale));
     if (typeof document !== "undefined") {
-      (document.documentElement.style as any).zoom = `${clamped}%`;
+      const ratio = (clamped / 100).toString();
       localStorage.setItem("votex_ui_scale", clamped.toString());
+      if (document.body) {
+        (document.body.style as any).zoom = ratio;
+      }
     }
     set({ uiScale: clamped });
   },
@@ -409,7 +412,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const currentReport = get().report;
     const ip = (currentReport?.server_ip || get().vpsConfig.host || "").trim();
     if (!ip) return "";
-    const newUrl = `https://${ip}:18080/sub/${newToken}`;
+    const newUrl = `http://${ip}:18080/sub/${newToken}`;
 
     if (currentReport) {
       const updatedReport: VotexReport = {

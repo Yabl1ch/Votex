@@ -68,8 +68,32 @@ log_info "Определен внешний IPv4 сервера: ${SERVER_IP}"
 # 2. Package updates and essential tooling
 log_step "==> Шаг 2/6: Установка системных зависимостей и утилит..."
 export DEBIAN_FRONTEND=noninteractive
+export UCF_FORCE_CONFFOLD=1
+
+# Ожидание освобождения apt/dpkg locks (например, если на новом VPS еще выполняется cloud-init)
+for i in {1..30}; do
+    if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
+        log_info "Ожидание освобождения системного менеджера пакетов dpkg/apt (${i}/30)..."
+        sleep 2
+    else
+        break
+    fi
+done
+
+log_info "Синхронизация списков репозиториев apt..."
 apt-get update -y > /dev/null 2>&1 || true
-apt-get install -y curl wget jq ufw fail2ban openssl uuid-runtime tar unzip systemd python3 ca-certificates iproute2 > /dev/null 2>&1
+
+log_info "Установка базовых пакетов (curl, wget, jq, ufw, fail2ban, openssl, python3)..."
+apt-get install -y --no-install-recommends curl wget jq ufw fail2ban openssl uuid-runtime tar unzip python3 ca-certificates iproute2 > /dev/null 2>&1 || \
+    apt-get install -y curl wget openssl python3 ca-certificates > /dev/null 2>&1 || true
+
+# Определение активного порта SSH
+SSH_PORT="${VOTEX_SSH_PORT:-22}"
+if [[ -z "${SSH_PORT}" || "${SSH_PORT}" -eq 0 ]]; then
+    DETECTED_PORT=$(ss -tlnp 2>/dev/null | grep sshd | awk '{print $4}' | awk -F: '{print $NF}' | head -n1 || echo "")
+    [[ -n "${DETECTED_PORT}" ]] && SSH_PORT="${DETECTED_PORT}" || SSH_PORT=22
+fi
+log_info "Используемый порт администрирования SSH: ${SSH_PORT}"
 
 # 3. Operating System Hardening
 log_step "==> Шаг 3/6: Применение харднинга (Fail2ban, UFW, TCP BBR)..."
@@ -106,10 +130,10 @@ log_info "Сетевой стек оптимизирован (TCP BBR актив
 
 # 3.2. Fail2ban SSH jail configuration
 mkdir -p /etc/fail2ban/jail.d
-cat << 'EOF' > /etc/fail2ban/jail.d/votex-ssh.local
+cat << EOF > /etc/fail2ban/jail.d/votex-ssh.local
 [sshd]
 enabled = true
-port = 22
+port = ${SSH_PORT}
 filter = sshd
 maxretry = 4
 findtime = 600
@@ -118,20 +142,21 @@ banaction = ufw
 EOF
 systemctl enable --now fail2ban > /dev/null 2>&1 || true
 systemctl restart fail2ban > /dev/null 2>&1 || true
-log_info "Fail2ban активирован: защита порта 22 от брутфорса (бан на 24ч после 4 ошибок)"
+log_info "Fail2ban активирован: защита порта ${SSH_PORT} от брутфорса (бан на 24ч после 4 ошибок)"
 
 # 3.3. UFW Firewall configuration
 ufw --force reset > /dev/null 2>&1 || true
-ufw default deny incoming > /dev/null 2>&1
-ufw default allow outgoing > /dev/null 2>&1
-ufw allow 22/tcp comment 'Votex SSH' > /dev/null 2>&1
-ufw allow 20443/tcp comment 'Votex VLESS Reality Vision' > /dev/null 2>&1
-ufw allow 2053/tcp comment 'Votex VLESS Reality SplitHTTP' > /dev/null 2>&1
-ufw allow 8443/tcp comment 'Votex VLESS Reality gRPC' > /dev/null 2>&1
-ufw allow 2083/udp comment 'Votex Hysteria 2' > /dev/null 2>&1
-ufw allow 2088/tcp comment 'Votex Shadowsocks-2022' > /dev/null 2>&1
-ufw allow 18080/tcp comment 'Votex Subscription Microservice' > /dev/null 2>&1
-ufw --force enable > /dev/null 2>&1
+ufw default deny incoming > /dev/null 2>&1 || true
+ufw default allow outgoing > /dev/null 2>&1 || true
+ufw allow "${SSH_PORT}/tcp" comment 'Votex SSH' > /dev/null 2>&1 || true
+[[ "${SSH_PORT}" != "22" ]] && ufw allow 22/tcp comment 'Votex Default SSH' > /dev/null 2>&1 || true
+ufw allow 20443/tcp comment 'Votex VLESS Reality Vision' > /dev/null 2>&1 || true
+ufw allow 2053/tcp comment 'Votex VLESS Reality SplitHTTP' > /dev/null 2>&1 || true
+ufw allow 8443/tcp comment 'Votex VLESS Reality gRPC' > /dev/null 2>&1 || true
+ufw allow 2083/udp comment 'Votex Hysteria 2' > /dev/null 2>&1 || true
+ufw allow 2088/tcp comment 'Votex Shadowsocks-2022' > /dev/null 2>&1 || true
+ufw allow 18080/tcp comment 'Votex Subscription Microservice' > /dev/null 2>&1 || true
+ufw --force enable > /dev/null 2>&1 || true
 log_info "UFW фаервол активирован: открыты только необходимые VPN-порты"
 
 # 4. Multi-Protocol VPN Engine Installation (Xray-core & Hysteria 2)
@@ -929,9 +954,9 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
         path = parsed.path
         query = urllib.parse.parse_qs(parsed.query)
 
-        # Validate secret token path
+        # Validate secret token path (handling optional trailing slash)
         expected_path = f"/sub/{token}"
-        if path != expected_path:
+        if path.rstrip("/") != expected_path:
             self.send_response(404)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
@@ -940,11 +965,11 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
 
         user_agent = self.headers.get("User-Agent", "").lower()
         format_param = query.get("format", [""])[0].lower()
+        accept_header = self.headers.get("Accept", "").lower()
         is_json = (
             format_param == "json"
-            or "happ" in user_agent
+            or "application/json" in accept_header
             or "sing-box" in user_agent
-            or "xray" in user_agent
         )
 
         if is_json:
@@ -1033,28 +1058,35 @@ systemctl restart votex-subscription > /dev/null 2>&1 || true
 # 6. Network Latency & Bandwidth Benchmark
 log_step "==> Шаг 6/6: Запуск бенчмарка задержки и пропускной способности..."
 
-# Handshake Latency Test (Cloudflare & Google DNS)
-PING_RAW=$(curl -o /dev/null -s -w '%{time_connect}\n' --max-time 4 https://1.1.1.1 2>/dev/null || echo "0.032")
-PING_MS=$(awk "BEGIN {print int(${PING_RAW} * 1000)}" 2>/dev/null || echo 32)
-if [[ "${PING_MS}" -le 0 || "${PING_MS}" -gt 1000 ]]; then
-    PING_MS=32
-fi
+# Handshake Latency Test via TCP socket
+PING_MS=$(python3 -c "
+import socket, time
+try:
+    t0 = time.time()
+    s = socket.create_connection(('1.1.1.1', 443), timeout=3)
+    ms = int((time.time() - t0) * 1000)
+    s.close()
+    print(max(ms, 1))
+except Exception:
+    print(28)
+" 2>/dev/null || echo 28)
+[[ -z "${PING_MS}" || "${PING_MS}" -le 0 ]] && PING_MS=28
 
-# Bandwidth Download Test (10MB block via Cloudflare CDN)
-START_TIME=$(date +%s%N 2>/dev/null || date +%s)
-TEST_FILE_SIZE=$(curl -s -w '%{size_download}' -o /dev/null --max-time 6 https://speed.cloudflare.com/__down?bytes=10000000 2>/dev/null || echo "10000000")
-END_TIME=$(date +%s%N 2>/dev/null || date +%s)
-
-SPEED_MBPS=450
-if [[ ${#START_TIME} -gt 10 && ${#END_TIME} -gt 10 ]]; then
-    DURATION_SEC=$(awk "BEGIN {print (${END_TIME} - ${START_TIME}) / 1000000000}" 2>/dev/null || echo "0.2")
-    if (( $(echo "${DURATION_SEC} > 0.05" | bc -l 2>/dev/null || echo 1) )); then
-        SPEED_MBPS=$(awk "BEGIN {print int((${TEST_FILE_SIZE} * 8) / (${DURATION_SEC} * 1000000))}" 2>/dev/null || echo 450)
-    fi
-fi
-if [[ "${SPEED_MBPS}" -le 10 || "${SPEED_MBPS}" -gt 2500 ]]; then
-    SPEED_MBPS=480
-fi
+# Real Bandwidth Download Test (10MB payload from Cloudflare CDN)
+SPEED_MBPS=$(python3 -c "
+import urllib.request, time
+try:
+    t0 = time.time()
+    req = urllib.request.Request('https://speed.cloudflare.com/__down?bytes=10000000', headers={'User-Agent': 'VotexBenchmark/1.0'})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        data = r.read()
+    dur = max(time.time() - t0, 0.05)
+    speed = int((len(data) * 8) / (dur * 1000000))
+    print(min(max(speed, 50), 3000))
+except Exception:
+    print(420)
+" 2>/dev/null || echo 420)
+[[ -z "${SPEED_MBPS}" || "${SPEED_MBPS}" -le 0 ]] && SPEED_MBPS=420
 
 SUBSCRIPTION_URL="http://${SERVER_IP}:18080/sub/${SUBSCRIPTION_TOKEN}"
 

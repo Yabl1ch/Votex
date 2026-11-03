@@ -107,13 +107,12 @@ export const ProvisioningPage: React.FC = () => {
         setStatus("error");
       }
     } catch (err) {
-      // Browser preview mode fallback
-      console.warn("Tauri test_connection fallback:", err);
-      appendLog("[VOTEX-INFO] Имитация ответа узла (режим предпросмотра)");
-      appendLog(`[OK] Порт ${vpsConfig.port} доступен! Задержка: 28 мс.`);
-      setIsConnected(true);
-      setLatency(28);
-      setStatus("idle");
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("Tauri test_connection error:", err);
+      setError(`Ошибка проверки соединения: ${errMsg}`);
+      appendLog(`[ERROR] Не удалось подключиться к ${vpsConfig.host.trim()}:${vpsConfig.port}. ${errMsg}`);
+      setIsConnected(false);
+      setStatus("error");
     }
   };
 
@@ -160,46 +159,11 @@ export const ProvisioningPage: React.FC = () => {
       });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.warn("Tauri run_provisioning fallback or error:", err);
-
-      // Check if Tauri is present and returned an actual error
-      if (errMsg.includes("Ошибка аутентификации") || errMsg.includes("Таймаут") || errMsg.includes("отклонено")) {
-        setError(errMsg);
-        appendLog(`[ERROR] Ошибка провизионирования: ${errMsg}`);
-        setStatus("error");
-        return;
-      }
-
-      // Simulated flow for web preview
-      appendLog("[VOTEX-STEP] [2/7] Применение системного харднинга: TCP BBR, SYN Cookies, UFW, Fail2ban");
-      appendLog("[VOTEX-INFO] Ядро настроено: net.ipv4.tcp_congestion_control = bbr");
-      setProgress(35);
-
-      setTimeout(() => {
-        appendLog("[VOTEX-STEP] [3/7] Установка ядра Xray-core и Hysteria 2");
-        appendLog("[VOTEX-INFO] Сгенерированы ключи Reality Vision (x25519) и shortId");
-        setProgress(55);
-      }, 600);
-
-      setTimeout(() => {
-        appendLog("[VOTEX-STEP] [4/7] Конфигурация 5 inbounds и маскировка под addons.mozilla.org");
-        appendLog("[VOTEX-INFO] Настроена TLS-фрагментация пакетов (1-3, 100-200)");
-        setProgress(75);
-      }, 1200);
-
-      setTimeout(() => {
-        appendLog("[VOTEX-STEP] [5/7] Запуск бенчмарка скорости и задержки");
-        appendLog("[VOTEX-INFO] Handshake latency: Hysteria 2 - 28ms, Reality Vision - 34ms");
-        setProgress(90);
-      }, 1800);
-
-      setTimeout(() => {
-        appendLog("[VOTEX-STEP] [6/7] Запуск демона подписки sub-service.py на порту 18080");
-        appendLog("[OK] [7/7] Сервер Votex полностью сконфигурирован и защищен!");
-        setStatus("success");
-        setProgress(100);
-        setIsConnected(true);
-      }, 2400);
+      console.error("Tauri run_provisioning error:", err);
+      setError(errMsg);
+      appendLog(`[ERROR] Ошибка провизионирования VPS: ${errMsg}`);
+      setStatus("error");
+      setIsConnected(false);
     }
   };
 

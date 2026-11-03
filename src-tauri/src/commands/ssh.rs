@@ -124,22 +124,41 @@ pub async fn run_provisioning(
         }
     }
 
-    emit_log("[2/7] Подготовка монолитного скрипта развертывания Votex...".to_string());
+    emit_log("[2/7] Загрузка и запуск скрипта развертывания Votex...".to_string());
 
-    let mut channel = session
+    let channel = session
         .channel_open_session()
         .await
         .map_err(|e| format!("Не удалось открыть SSH-канал сессии: {}", e))?;
 
-    // Execute bash command running the script directly from bash input
-    let cmd = "cat << 'EOF' > /tmp/votex-install.sh && chmod +x /tmp/votex-install.sh && bash /tmp/votex-install.sh\n";
+    // Execute shell pipeline: pass port, read script from stdin into /tmp/votex-install.sh, strip carriage returns, chmod +x, and run bash
+    let exec_cmd = format!(
+        "export VOTEX_SSH_PORT={} && tr -d '\\r' > /tmp/votex-install.sh && chmod +x /tmp/votex-install.sh && bash /tmp/votex-install.sh",
+        port
+    );
     channel
-        .exec(true, format!("{}{}\nEOF\n", cmd, EMBEDDED_INSTALL_SCRIPT))
+        .exec(true, exec_cmd)
         .await
-        .map_err(|e| format!("Ошибка отправки команды на исполнение: {}", e))?;
+        .map_err(|e| format!("Ошибка запуска установщика на сервере: {}", e))?;
+
+    // Normalize script line endings and stream script content to channel stdin
+    let clean_script = EMBEDDED_INSTALL_SCRIPT.replace("\r\n", "\n").replace('\r', "\n");
+    let script_bytes = clean_script.into_bytes();
+
+    channel
+        .data(&script_bytes[..])
+        .await
+        .map_err(|e| format!("Ошибка передачи скрипта развертывания по SSH: {}", e))?;
+
+    channel
+        .eof()
+        .await
+        .map_err(|e| format!("Ошибка фиксации потока ввода SSH: {}", e))?;
 
     let mut accumulated_log = String::new();
+    let mut exit_code: Option<u32> = None;
 
+    let mut channel = channel;
     while let Some(msg) = channel.wait().await {
         match msg {
             russh::ChannelMsg::Data { ref data } => {
@@ -157,6 +176,7 @@ pub async fn run_provisioning(
                 }
             }
             russh::ChannelMsg::ExitStatus { exit_status } => {
+                exit_code = Some(exit_status);
                 if exit_status != 0 {
                     emit_log(format!("[ERROR] Скрипт завершился с кодом ошибки: {}", exit_status));
                 }
@@ -170,6 +190,15 @@ pub async fn run_provisioning(
 
     if let Ok(mut in_progress) = state.is_provisioning.lock() {
         *in_progress = false;
+    }
+
+    if let Some(code) = exit_code {
+        if code != 0 {
+            return Err(format!(
+                "Скрипт развертывания на сервере завершился с ошибкой (код {}). Проверьте лог терминала.",
+                code
+            ));
+        }
     }
 
     // Parse structured JSON report
