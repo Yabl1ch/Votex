@@ -7,9 +7,7 @@ import {
   Layers,
   ArrowUpDown,
   CheckCircle2,
-  Download,
   Shield,
-  Check,
   Flame,
   Radio,
   Lock,
@@ -26,14 +24,15 @@ import type { ProtocolLatencyItem } from "../components/bento/LatencyBar";
 import { useAppStore } from "../store";
 
 export const ReportsPage: React.FC = () => {
-  const { report, quickPing } = useAppStore();
+  const { report, quickPing, isConnected } = useAppStore();
+  const hasVps = Boolean(report && isConnected);
+
   const [testing, setTesting] = useState(false);
   const [downloadSpeed, setDownloadSpeed] = useState(
-    report?.benchmark?.speed_mbps || 480
+    hasVps ? (report?.benchmark?.speed_mbps || 480) : 0
   );
-  const [uploadSpeed, setUploadSpeed] = useState(420);
-  const [ping, setPing] = useState(report?.benchmark?.latency_ms || 28);
-  const [exported, setExported] = useState(false);
+  const [uploadSpeed, setUploadSpeed] = useState(hasVps ? 420 : 0);
+  const [ping, setPing] = useState(hasVps ? (report?.benchmark?.latency_ms || 28) : 0);
 
   // Protocols dynamic latency items
   const protoBench = report?.benchmark?.protocols;
@@ -43,8 +42,8 @@ export const ReportsPage: React.FC = () => {
       name: "Hysteria 2 (QUIC)",
       port: 2083,
       proto: "UDP",
-      latency_ms: protoBench?.hysteria2?.latency_ms ?? 28,
-      tag: "Минимальный пинг для игр",
+      latency_ms: hasVps ? (protoBench?.hysteria2?.latency_ms ?? 0) : 0,
+      tag: hasVps ? "Минимальный пинг для игр" : "Ожидание настройки",
       icon: <Flame className="w-4 h-4 text-[#4ADE80]" />,
     },
     {
@@ -52,8 +51,8 @@ export const ReportsPage: React.FC = () => {
       name: "VLESS Reality Vision",
       port: 20443,
       proto: "TCP",
-      latency_ms: protoBench?.vision?.latency_ms ?? 34,
-      tag: "Флагман против ТСПУ",
+      latency_ms: hasVps ? (protoBench?.vision?.latency_ms ?? 0) : 0,
+      tag: hasVps ? "Флагман против ТСПУ" : "Ожидание настройки",
       icon: <Shield className="w-4 h-4 text-[#22C55E]" />,
     },
     {
@@ -61,8 +60,8 @@ export const ReportsPage: React.FC = () => {
       name: "Shadowsocks-2022",
       port: 2088,
       proto: "TCP",
-      latency_ms: protoBench?.shadowsocks?.latency_ms ?? 36,
-      tag: "Надежный резерв",
+      latency_ms: hasVps ? (protoBench?.shadowsocks?.latency_ms ?? 0) : 0,
+      tag: hasVps ? "Надежный резерв" : "Ожидание настройки",
       icon: <Lock className="w-4 h-4 text-[#86EFAC]" />,
     },
     {
@@ -70,8 +69,8 @@ export const ReportsPage: React.FC = () => {
       name: "gRPC Multi-Stream",
       port: 8443,
       proto: "TCP",
-      latency_ms: protoBench?.grpc?.latency_ms ?? 38,
-      tag: "Мультиплексирование",
+      latency_ms: hasVps ? (protoBench?.grpc?.latency_ms ?? 0) : 0,
+      tag: hasVps ? "Мультиплексирование" : "Ожидание настройки",
       icon: <Layers className="w-4 h-4 text-[#6EE7B7]" />,
     },
     {
@@ -79,13 +78,14 @@ export const ReportsPage: React.FC = () => {
       name: "SplitHTTP (xhttp)",
       port: 2053,
       proto: "TCP",
-      latency_ms: protoBench?.xhttp?.latency_ms ?? 52,
-      tag: "Обход жестких белых списков",
+      latency_ms: hasVps ? (protoBench?.xhttp?.latency_ms ?? 0) : 0,
+      tag: hasVps ? "Обход жестких белых списков" : "Ожидание настройки",
       icon: <Radio className="w-4 h-4 text-[#A7F3D0]" />,
     },
   ];
 
   const handleRetestSpeed = async () => {
+    if (!hasVps) return;
     setTesting(true);
     try {
       const realPing = await quickPing();
@@ -104,24 +104,6 @@ export const ReportsPage: React.FC = () => {
     }, 1200);
   };
 
-  const handleExportJson = () => {
-    if (!report) return;
-    try {
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(report, null, 2));
-      const downloadAnchor = document.createElement("a");
-      downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", `votex-report-${report.server_ip}.json`);
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
-
-      setExported(true);
-      setTimeout(() => setExported(false), 2500);
-    } catch (err) {
-      console.warn("Export report failed:", err);
-    }
-  };
-
   return (
     <div className="space-y-4 animate-fadeIn">
       {/* Page Header - Perfectly Aligned with Bento Grid */}
@@ -135,27 +117,18 @@ export const ReportsPage: React.FC = () => {
           </p>
         </div>
 
-        {/* Action Buttons: Strictly whitespace-nowrap */}
+        {/* Action Button: Strictly whitespace-nowrap */}
         <div className="flex items-center gap-3 shrink-0">
-          <GlassButton
-            variant="secondary"
-            size="md"
-            onClick={handleExportJson}
-            icon={exported ? <Check className="w-5 h-5 text-[#4ADE80]" /> : <Download className="w-5 h-5" />}
-            className="whitespace-nowrap"
-          >
-            {exported ? "Отчёт экспортирован" : "Экспорт отчета (JSON)"}
-          </GlassButton>
-
           <GlassButton
             variant="primary"
             size="md"
             onClick={handleRetestSpeed}
+            disabled={!hasVps}
             loading={testing}
             icon={<RotateCw className="w-5 h-5" />}
             className="whitespace-nowrap"
           >
-            Повторить тест скорости
+            {hasVps ? "Повторить тест скорости" : "Требуется сервер"}
           </GlassButton>
         </div>
       </div>
@@ -167,11 +140,15 @@ export const ReportsPage: React.FC = () => {
           glow
           icon={<Gauge className="w-5 h-5 text-[#4ADE80]" />}
           title="Спидометр туннеля"
-          subtitle="Сверхточный замер реальной пропускной способности канала (CDN Амстердам / Франкфурт)"
+          subtitle={
+            hasVps
+              ? "Сверхточный замер реальной пропускной способности канала (CDN Амстердам / Франкфурт)"
+              : "Замер скорости будет доступен после развертывания сервера в Мастере установки"
+          }
           badge={
             <StatusBadge
-              status="online"
-              label="4K UHD Ready"
+              status={hasVps ? "online" : "offline"}
+              label={hasVps ? "4K UHD Ready" : "0 МБ/с (Оффлайн)"}
             />
           }
         >
@@ -193,7 +170,7 @@ export const ReportsPage: React.FC = () => {
           badge={
             <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#22C55E]/15 text-[#4ADE80] text-xs font-mono border border-[#22C55E]/30">
               <ArrowUpDown className="w-3.5 h-3.5" />
-              <span>5 Активных</span>
+              <span>{hasVps ? "5 Активных" : "0 Активных"}</span>
             </div>
           }
         >
@@ -210,7 +187,9 @@ export const ReportsPage: React.FC = () => {
               <Zap className="w-4 h-4 text-[#4ADE80]" />
               Все протоколы объединены в один общий subscription профиль
             </span>
-            <span className="font-mono text-[#4ADE80] font-medium">Auto-Fallback ON</span>
+            <span className="font-mono text-[#4ADE80] font-medium">
+              {hasVps ? "Auto-Fallback ON" : "Ожидание настройки"}
+            </span>
           </div>
         </BentoCard>
 
@@ -224,19 +203,27 @@ export const ReportsPage: React.FC = () => {
           <div className="space-y-3 text-xs sm:text-sm">
             <div className="flex items-center justify-between p-3 rounded-xl bg-[rgba(15,34,26,0.6)] border border-[rgba(74,222,128,0.12)]">
               <span className="text-[#A7F3D0]">Устойчивость к ТСПУ / DPI</span>
-              <span className="text-[#4ADE80] font-mono font-bold">99.8% (XTLS)</span>
+              <span className={`font-mono font-bold ${hasVps ? "text-[#4ADE80]" : "text-zinc-500"}`}>
+                {hasVps ? "99.8% (XTLS)" : "0% (Оффлайн)"}
+              </span>
             </div>
             <div className="flex items-center justify-between p-3 rounded-xl bg-[rgba(15,34,26,0.6)] border border-[rgba(74,222,128,0.12)]">
               <span className="text-[#A7F3D0]">YouTube 4K 60fps HDR</span>
-              <span className="text-[#4ADE80] font-semibold">Без буферизации</span>
+              <span className={hasVps ? "text-[#4ADE80] font-semibold" : "text-zinc-500"}>
+                {hasVps ? "Без буферизации" : "Недоступно"}
+              </span>
             </div>
             <div className="flex items-center justify-between p-3 rounded-xl bg-[rgba(15,34,26,0.6)] border border-[rgba(74,222,128,0.12)]">
               <span className="text-[#A7F3D0]">Онлайн-игры (CS2 / Dota 2)</span>
-              <span className="text-[#4ADE80] font-semibold">28 мс (UDP)</span>
+              <span className={hasVps ? "text-[#4ADE80] font-semibold" : "text-zinc-500"}>
+                {hasVps ? "28 мс (UDP)" : "0 мс"}
+              </span>
             </div>
             <div className="flex items-center justify-between p-3 rounded-xl bg-[rgba(15,34,26,0.6)] border border-[rgba(74,222,128,0.12)]">
               <span className="text-[#A7F3D0]">Стриминг Discord / Twitch</span>
-              <span className="text-[#4ADE80] font-semibold">1080p 60fps</span>
+              <span className={hasVps ? "text-[#4ADE80] font-semibold" : "text-zinc-500"}>
+                {hasVps ? "1080p 60fps" : "Недоступно"}
+              </span>
             </div>
           </div>
         </BentoCard>

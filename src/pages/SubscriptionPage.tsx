@@ -17,20 +17,23 @@ import { BentoGrid, BentoCard, GlassButton, StatusBadge } from "../components/be
 import { useAppStore } from "../store";
 
 export const SubscriptionPage: React.FC = () => {
-  const { report, regenerateToken, vpsConfig } = useAppStore();
+  const { report, regenerateToken } = useAppStore();
   const [copied, setCopied] = useState(false);
   const [tokenRegenerating, setTokenRegenerating] = useState(false);
   const [tokenFeedback, setTokenFeedback] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
-  const subUrl =
-    report?.subscription_url ||
-    `https://${vpsConfig.host || "89.125.126.90"}:18080/sub/9f8a3c2e1b4d5e6f7a8b9c0d1e2f3a4b`;
+  const subUrl = report?.subscription_url || "";
+  const hasSub = Boolean(report && subUrl);
 
   // Generate QR Code data URL whenever subUrl changes
   useEffect(() => {
     let isMounted = true;
+    if (!subUrl) {
+      setQrDataUrl(null);
+      return;
+    }
     const generateQr = async () => {
       try {
         const url = await QRCode.toDataURL(subUrl, {
@@ -56,6 +59,7 @@ export const SubscriptionPage: React.FC = () => {
   }, [subUrl]);
 
   const handleCopy = async () => {
+    if (!subUrl) return;
     try {
       await navigator.clipboard.writeText(subUrl);
       setCopied(true);
@@ -66,12 +70,15 @@ export const SubscriptionPage: React.FC = () => {
   };
 
   const handleRegenerateToken = async () => {
+    if (!hasSub) return;
     setTokenRegenerating(true);
     setTokenFeedback(null);
     try {
       const newToken = await regenerateToken();
-      setTokenFeedback(`Новый токен (${newToken.substring(0, 8)}...) успешно активирован и сохранен в Vault!`);
-      setTimeout(() => setTokenFeedback(null), 3500);
+      if (newToken) {
+        setTokenFeedback(`Новый токен (${newToken.substring(0, 8)}...) успешно активирован и сохранен в Vault!`);
+        setTimeout(() => setTokenFeedback(null), 3500);
+      }
     } catch (err) {
       console.warn("Failed to regenerate token:", err);
     } finally {
@@ -101,8 +108,8 @@ export const SubscriptionPage: React.FC = () => {
           subtitle="Совместимо с Happ, v2rayN, sing-box и Nekobox"
           badge={
             <StatusBadge
-              status="active"
-              label="Токен валиден"
+              status={hasSub ? "active" : "offline"}
+              label={hasSub ? "Токен валиден" : "Ожидание VPS"}
             />
           }
         >
@@ -111,8 +118,14 @@ export const SubscriptionPage: React.FC = () => {
               <span className="text-xs text-[#A7F3D0]/70 uppercase font-semibold block mb-1.5">
                 Полный URL ссылки подписки:
               </span>
-              <div className="p-3.5 rounded-xl bg-[rgba(8,20,15,0.85)] border border-[rgba(74,222,128,0.2)] font-mono text-sm text-[#4ADE80] break-all select-all">
-                {subUrl}
+              <div className="p-3.5 rounded-xl bg-[rgba(8,20,15,0.85)] border border-[rgba(74,222,128,0.2)] font-mono text-sm break-all select-all">
+                {subUrl ? (
+                  <span className="text-[#4ADE80]">{subUrl}</span>
+                ) : (
+                  <span className="text-[#A7F3D0]/40 italic">
+                    Подписка отсутствует. Запустите установку во вкладке «Мастер установки».
+                  </span>
+                )}
               </div>
             </div>
 
@@ -120,7 +133,7 @@ export const SubscriptionPage: React.FC = () => {
               <div className="p-3 rounded-xl bg-[rgba(8,20,15,0.7)] border border-[rgba(74,222,128,0.12)]">
                 <span className="text-xs text-[#A7F3D0]/60 uppercase block">Токен доступа</span>
                 <span className="text-sm font-mono text-[#ECFDF5] truncate block mt-0.5">
-                  {report?.subscription_token ? `${report.subscription_token.substring(0, 16)}...` : "9f8a3c2e1b4d..."}
+                  {report?.subscription_token ? `${report.subscription_token.substring(0, 16)}...` : "—"}
                 </span>
               </div>
               <div className="p-3 rounded-xl bg-[rgba(8,20,15,0.7)] border border-[rgba(74,222,128,0.12)]">
@@ -143,10 +156,15 @@ export const SubscriptionPage: React.FC = () => {
                 variant="primary"
                 size="lg"
                 onClick={handleCopy}
+                disabled={!hasSub}
                 icon={copied ? <Check className="w-5 h-5 text-[#06100C]" /> : <Copy className="w-5 h-5" />}
                 className="w-full whitespace-nowrap"
               >
-                {copied ? "Ссылка скопирована в буфер!" : "Копировать ссылку для Happ"}
+                {copied
+                  ? "Ссылка скопирована в буфер!"
+                  : hasSub
+                  ? "Копировать ссылку для Happ"
+                  : "Ссылка недоступна (настройте сервер)"}
               </GlassButton>
 
               {/* Bottom Row: Secondary Actions (Adaptive 2-column Grid) */}
@@ -155,6 +173,7 @@ export const SubscriptionPage: React.FC = () => {
                   variant="secondary"
                   size="md"
                   onClick={() => setShowQr(!showQr)}
+                  disabled={!hasSub}
                   icon={<QrCode className="w-5 h-5 text-[#4ADE80]" />}
                   className="w-full whitespace-nowrap"
                 >
@@ -165,6 +184,7 @@ export const SubscriptionPage: React.FC = () => {
                   variant="secondary"
                   size="md"
                   onClick={handleRegenerateToken}
+                  disabled={!hasSub}
                   loading={tokenRegenerating}
                   icon={<RefreshCw className={`w-5 h-5 text-[#4ADE80] ${tokenRegenerating ? "animate-spin" : ""}`} />}
                   className="w-full whitespace-nowrap"
@@ -282,12 +302,12 @@ export const SubscriptionPage: React.FC = () => {
         <BentoCard
           colSpan={6}
           icon={<ShieldCheck className="w-5 h-5 text-[#4ADE80]" />}
-          title="Маршрутизация РФ: Активна"
+          title={hasSub ? "Маршрутизация РФ: Активна" : "Маршрутизация РФ: Не настроена"}
           subtitle="Банки, Госуслуги и российские сервисы работают напрямую"
           badge={
             <StatusBadge
-              status="online"
-              label="Direct Bypass"
+              status={hasSub ? "online" : "neutral"}
+              label={hasSub ? "Direct Bypass" : "Ожидание настройки"}
             />
           }
         >
@@ -309,12 +329,12 @@ export const SubscriptionPage: React.FC = () => {
         <BentoCard
           colSpan={6}
           icon={<Radio className="w-5 h-5 text-[#4ADE80]" />}
-          title="Защита от блокировок: Включена"
+          title={hasSub ? "Защита от блокировок: Включена" : "Защита от блокировок: Не активна"}
           subtitle="Автоматический обход ТСПУ и DPI фильтрации"
           badge={
             <StatusBadge
-              status="protected"
-              label="Anti-DPI Active"
+              status={hasSub ? "protected" : "neutral"}
+              label={hasSub ? "Anti-DPI Active" : "Ожидание настройки"}
             />
           }
         >

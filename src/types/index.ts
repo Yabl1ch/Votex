@@ -111,3 +111,8 @@ export interface SmartRouteItem {
   description: string;
   domains: string[];
 }
+
+declare global {
+  const __BUILD_TIME__: string;
+  const __APP_VERSION__: string;
+}

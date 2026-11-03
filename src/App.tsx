@@ -15,12 +15,18 @@ export const App: React.FC = () => {
   const {
     activeTab,
     theme,
+    uiScale,
     isConnected,
     latency,
     appendLog,
     setProgress,
     loadSavedVpsFromVault,
   } = useAppStore();
+
+  // Apply UI scale to root document
+  useEffect(() => {
+    (document.documentElement.style as any).zoom = `${uiScale}%`;
+  }, [uiScale]);
 
   // Set theme attribute on root element
   useEffect(() => {
@@ -97,12 +103,10 @@ export const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3">
-            {latency !== null && isConnected && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[rgba(8,20,15,0.7)] border border-[rgba(74,222,128,0.18)] text-xs sm:text-sm font-mono text-[#A7F3D0]">
-                <Activity className="w-4 h-4 text-[#4ADE80]" />
-                <span>{latency} мс</span>
-              </div>
-            )}
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[rgba(8,20,15,0.7)] border border-[rgba(74,222,128,0.18)] text-xs sm:text-sm font-mono text-[#A7F3D0]">
+              <Activity className={`w-4 h-4 ${isConnected ? "text-[#4ADE80]" : "text-zinc-500"}`} />
+              <span>{isConnected && latency !== null ? `${latency} мс` : "0 мс"}</span>
+            </div>
 
             <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[rgba(8,20,15,0.75)] border border-[rgba(74,222,128,0.18)] text-xs sm:text-sm font-medium">
               {isConnected ? (
@@ -113,7 +117,7 @@ export const App: React.FC = () => {
               ) : (
                 <>
                   <WifiOff className="w-4 h-4 text-zinc-400" />
-                  <span className="text-[#A7F3D0]/70">Ожидание подключения</span>
+                  <span className="text-[#A7F3D0]/60">Туннель не настроен</span>
                 </>
               )}
             </div>

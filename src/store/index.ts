@@ -16,6 +16,8 @@ export interface AppState {
   // Navigation & Appearance
   activeTab: TabId;
   setActiveTab: (tab: TabId) => void;
+  uiScale: number;
+  setUiScale: (scale: number) => void;
   theme: AppTheme;
   setTheme: (theme: AppTheme) => void;
   sshTimeout: number;
@@ -203,6 +205,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeTab: "dashboard",
   setActiveTab: (activeTab) => set({ activeTab }),
 
+  uiScale: typeof window !== "undefined" ? Number(localStorage.getItem("votex_ui_scale")) || 100 : 100,
+  setUiScale: (uiScale: number) => {
+    const clamped = Math.min(130, Math.max(80, uiScale));
+    if (typeof document !== "undefined") {
+      (document.documentElement.style as any).zoom = `${clamped}%`;
+      localStorage.setItem("votex_ui_scale", clamped.toString());
+    }
+    set({ uiScale: clamped });
+  },
+
   theme: "obsidian",
   setTheme: (theme) => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -216,7 +228,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setAutoSaveVault: (autoSaveVault) => set({ autoSaveVault }),
 
   vpsConfig: {
-    host: "89.125.126.90",
+    host: "",
     port: 22,
     username: "root",
     password: "",
@@ -237,29 +249,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
   clearLogs: () => set({ logs: [], progress: 0, error: null }),
 
-  report: defaultMockReport,
+  report: null,
   setReport: (report) => set({ report }),
 
-  metrics: {
-    host: "89.125.126.90",
-    is_reachable: true,
-    latency_ms: 28,
-    subscription_active: true,
-    ufw_ok: true,
-    timestamp: new Date().toISOString(),
-  },
+  metrics: null,
   setMetrics: (metrics) => set({ metrics }),
 
   error: null,
   setError: (error) => set({ error }),
 
-  isConnected: true,
+  isConnected: false,
   setIsConnected: (isConnected) => set({ isConnected }),
 
-  latency: 28,
+  latency: null,
   setLatency: (latency) => set({ latency }),
 
-  pingHistory: [32, 29, 28, 30, 27, 28, 29, 28],
+  pingHistory: [],
   appendPingHistory: (ms) =>
     set((state) => ({
       pingHistory: [...state.pingHistory.slice(-9), ms],
@@ -278,7 +283,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const record = await invoke<VaultRecord | null>("get_saved_vps");
-      if (record) {
+      if (record && record.host) {
         set((state) => ({
           vpsConfig: {
             ...state.vpsConfig,
@@ -286,22 +291,46 @@ export const useAppStore = create<AppState>((set, get) => ({
             port: record.port,
             username: record.username || "root",
           },
-          report: state.report
-            ? {
-                ...state.report,
-                server_ip: record.host,
-                subscription_url: record.subscription_url,
-                subscription_token: record.subscription_token,
-              }
-            : {
-                ...defaultMockReport,
-                server_ip: record.host,
-                subscription_url: record.subscription_url,
-                subscription_token: record.subscription_token,
+          report: {
+            status: "active",
+            server_ip: record.host,
+            subscription_url: record.subscription_url,
+            subscription_token: record.subscription_token,
+            uuid: "vault-synced",
+            reality_public_key: "",
+            short_id: "",
+            benchmark: {
+              latency_ms: 0,
+              speed_mbps: 0,
+              protocols: {
+                hysteria2: { port: 2083, latency_ms: 0, status: "READY" },
+                vision: { port: 20443, latency_ms: 0, status: "READY" },
+                shadowsocks: { port: 2088, latency_ms: 0, status: "READY" },
+                grpc: { port: 8443, latency_ms: 0, status: "READY" },
+                xhttp: { port: 2053, latency_ms: 0, status: "READY" },
               },
+            },
+            hardening: {
+              tcp_bbr: true,
+              fail2ban: true,
+              ufw: true,
+              allowed_ports: [record.port, 18080],
+            },
+          },
           isConnected: true,
         }));
+        // Ping live server in background
+        get().quickPing(record.host, record.port);
         return record;
+      } else {
+        set({
+          vpsConfig: { host: "", port: 22, username: "root", password: "" },
+          report: null,
+          metrics: null,
+          isConnected: false,
+          latency: null,
+          pingHistory: [],
+        });
       }
       return null;
     } catch (err) {
@@ -325,6 +354,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("clear_saved_vps");
+      set({
+        vpsConfig: { host: "", port: 22, username: "root", password: "" },
+        report: null,
+        metrics: null,
+        isConnected: false,
+        latency: null,
+        pingHistory: [],
+      });
       return true;
     } catch (err) {
       console.warn("Vault clear error:", err);
@@ -333,7 +370,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   quickPing: async (host?: string, port?: number) => {
-    const targetHost = (host || get().vpsConfig.host || get().report?.server_ip || "89.125.126.90").trim();
+    const targetHost = (host || get().vpsConfig.host || get().report?.server_ip || "").trim();
+    if (!targetHost) {
+      set({ latency: null, isConnected: false });
+      return 0;
+    }
     const targetPort = port || get().vpsConfig.port || 22;
 
     try {
@@ -347,10 +388,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return ms;
     } catch (err) {
       console.warn("Tauri quick ping fallback:", err);
-      const simulatedMs = Math.floor(25 + Math.random() * 8);
-      set({ latency: simulatedMs, isConnected: true });
-      get().appendPingHistory(simulatedMs);
-      return simulatedMs;
+      return 0;
     }
   },
 
@@ -369,7 +407,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     const currentReport = get().report;
-    const ip = currentReport?.server_ip || get().vpsConfig.host || "89.125.126.90";
+    const ip = (currentReport?.server_ip || get().vpsConfig.host || "").trim();
+    if (!ip) return "";
     const newUrl = `https://${ip}:18080/sub/${newToken}`;
 
     if (currentReport) {

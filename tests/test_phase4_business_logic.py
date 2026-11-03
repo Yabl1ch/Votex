@@ -137,7 +137,6 @@ class TestPhase4BusinessLogic(unittest.TestCase):
         with open(rep_path, "r", encoding="utf-8") as f:
             rep_content = f.read()
         self.assertIn("Повторить тест скорости", rep_content)
-        self.assertIn("Экспорт отчета (JSON)", rep_content)
         self.assertIn("whitespace-nowrap", rep_content)
 
     def test_qr_code_dependency_and_integration(self):

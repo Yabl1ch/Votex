@@ -34,13 +34,12 @@ export const DashboardPage: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [isPinging, setIsPinging] = useState(false);
 
-  const subUrl =
-    report?.subscription_url ||
-    `https://${vpsConfig.host || "89.125.126.90"}:18080/sub/9f8a3c2e1b4d5e6f7a8b9c0d1e2f3a4b`;
-
-  const serverIp = report?.server_ip || vpsConfig.host || "89.125.126.90";
+  const serverIp = (report?.server_ip || vpsConfig.host || "").trim();
+  const subUrl = report?.subscription_url || "";
+  const hasVps = Boolean(serverIp && isConnected);
 
   const handleCopyLink = async () => {
+    if (!subUrl) return;
     try {
       await navigator.clipboard.writeText(subUrl);
       setCopied(true);
@@ -51,6 +50,7 @@ export const DashboardPage: React.FC = () => {
   };
 
   const handleQuickPing = async () => {
+    if (!serverIp) return;
     setIsPinging(true);
     try {
       await quickPing(serverIp, 22);
@@ -61,11 +61,11 @@ export const DashboardPage: React.FC = () => {
 
   // Protocols dynamic latency from report if present
   const protoBench = report?.benchmark?.protocols;
-  const visionLatency = protoBench?.vision?.latency_ms ?? 34;
-  const xhttpLatency = protoBench?.xhttp?.latency_ms ?? 52;
-  const grpcLatency = protoBench?.grpc?.latency_ms ?? 38;
-  const hysteriaLatency = protoBench?.hysteria2?.latency_ms ?? 28;
-  const ssLatency = protoBench?.shadowsocks?.latency_ms ?? 36;
+  const visionLatency = hasVps ? (protoBench?.vision?.latency_ms ?? 0) : 0;
+  const xhttpLatency = hasVps ? (protoBench?.xhttp?.latency_ms ?? 0) : 0;
+  const grpcLatency = hasVps ? (protoBench?.grpc?.latency_ms ?? 0) : 0;
+  const hysteriaLatency = hasVps ? (protoBench?.hysteria2?.latency_ms ?? 0) : 0;
+  const ssLatency = hasVps ? (protoBench?.shadowsocks?.latency_ms ?? 0) : 0;
 
   return (
     <div className="space-y-4 animate-fadeIn">
@@ -104,8 +104,8 @@ export const DashboardPage: React.FC = () => {
           subtitle="Персональный выделенный сервер Votex"
           badge={
             <StatusBadge
-              status={isConnected ? "protected" : "offline"}
-              label={isConnected ? "Сервер защищен и активен" : "Отключен"}
+              status={hasVps ? "protected" : "offline"}
+              label={hasVps ? "Сервер защищен и активен" : "Сервер не настроен"}
             />
           }
         >
@@ -115,10 +115,10 @@ export const DashboardPage: React.FC = () => {
                 <Globe className="w-3 h-3 text-[#4ADE80]" /> IP Адрес
               </span>
               <span className="text-xs sm:text-sm font-mono font-bold text-[#ECFDF5] truncate block">
-                {serverIp}
+                {serverIp || "—"}
               </span>
               <span className="text-[10px] text-[#6EE7B7] truncate block mt-0.5">
-                Амстердам, NL
+                {hasVps ? "Амстердам, NL" : "Отсутствует"}
               </span>
             </div>
 
@@ -127,10 +127,10 @@ export const DashboardPage: React.FC = () => {
                 <Clock className="w-3 h-3 text-[#4ADE80]" /> Uptime
               </span>
               <span className="text-xs sm:text-sm font-mono font-bold text-[#ECFDF5] truncate block">
-                14д 6ч 22м
+                {hasVps ? "14д 6ч 22м" : "0ч 0м"}
               </span>
               <span className="text-[10px] text-[#6EE7B7] truncate block mt-0.5">
-                Без перезагрузок
+                {hasVps ? "Без перезагрузок" : "Оффлайн"}
               </span>
             </div>
 
@@ -139,10 +139,10 @@ export const DashboardPage: React.FC = () => {
                 <Activity className="w-3 h-3 text-[#4ADE80]" /> Пинг (TCP)
               </span>
               <span className="text-xs sm:text-sm font-mono font-bold text-[#ECFDF5] truncate block">
-                {latency ?? 28} мс
+                {hasVps && latency !== null ? `${latency} мс` : "0 мс"}
               </span>
               <span className="text-[10px] text-[#4ADE80] truncate block mt-0.5">
-                0% потерь пакетов
+                {hasVps ? "0% потерь пакетов" : "0% (Нет связи)"}
               </span>
             </div>
 
@@ -151,10 +151,10 @@ export const DashboardPage: React.FC = () => {
                 <Cpu className="w-3 h-3 text-[#4ADE80]" /> Нагрузка ЦП
               </span>
               <span className="text-xs sm:text-sm font-mono font-bold text-[#ECFDF5] truncate block">
-                3.2% / 1.8 ГБ
+                {hasVps ? "3.2% / 1.8 ГБ" : "0% / 0 ГБ"}
               </span>
               <span className="text-[10px] text-[#6EE7B7] truncate block mt-0.5">
-                ОЗУ: 24% свободно
+                {hasVps ? "ОЗУ: 24% свободно" : "ОЗУ: 0%"}
               </span>
             </div>
           </div>
@@ -166,27 +166,37 @@ export const DashboardPage: React.FC = () => {
               <span className="text-xs text-[#A7F3D0]/80">Стабильность пинга (последние запросы):</span>
             </div>
             <div className="flex items-end gap-1.5 h-6">
-              {pingHistory.map((val, idx) => {
-                const heightPct = Math.min(100, Math.max(25, (val / 50) * 100));
-                return (
-                  <div
-                    key={idx}
-                    title={`${val} мс`}
-                    style={{ height: `${heightPct}%` }}
-                    className="w-1.5 rounded-full bg-gradient-to-t from-[#22C55E] to-[#4ADE80] opacity-80 hover:opacity-100 transition-all cursor-default"
-                  />
-                );
-              })}
+              {pingHistory.length > 0 ? (
+                pingHistory.map((val, idx) => {
+                  const heightPct = Math.min(100, Math.max(25, (val / 50) * 100));
+                  return (
+                    <div
+                      key={idx}
+                      title={`${val} мс`}
+                      style={{ height: `${heightPct}%` }}
+                      className="w-1.5 rounded-full bg-gradient-to-t from-[#22C55E] to-[#4ADE80] opacity-80 hover:opacity-100 transition-all cursor-default"
+                    />
+                  );
+                })
+              ) : (
+                <span className="text-[11px] text-[#A7F3D0]/50 italic">Нет замеров</span>
+              )}
             </div>
           </div>
 
           <div className="mt-3 pt-3 border-t border-[rgba(74,222,128,0.1)] flex items-center justify-between text-xs sm:text-sm text-[#A7F3D0]/80">
             <span className="flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-[#4ADE80]" />
-              Защита ядра Linux: TCP BBR + Fail2ban + UFW Firewall активны
+              {hasVps
+                ? "Защита ядра Linux: TCP BBR + Fail2ban + UFW Firewall активны"
+                : "Серверная защита ядра Linux: не развернута"}
             </span>
-            <span className="text-xs font-mono font-medium text-[#4ADE80] px-2.5 py-1 rounded-full bg-[#22C55E]/15 border border-[#22C55E]/30 whitespace-nowrap">
-              100% Защищено
+            <span className={`text-xs font-mono font-medium px-2.5 py-1 rounded-full whitespace-nowrap ${
+              hasVps
+                ? "bg-[#22C55E]/15 text-[#4ADE80] border border-[#22C55E]/30"
+                : "bg-zinc-800 text-zinc-400 border border-zinc-700"
+            }`}>
+              {hasVps ? "100% Защищено" : "0% Не настроено"}
             </span>
           </div>
         </BentoCard>
@@ -199,19 +209,29 @@ export const DashboardPage: React.FC = () => {
           title="Ссылка подписки"
           subtitle="Формат Base64 + Sing-Box JSON"
           badge={
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#22C55E]/15 text-[#4ADE80] border border-[#22C55E]/30 font-mono">
-              Happ / v2rayN
+            <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full font-mono ${
+              hasVps
+                ? "bg-[#22C55E]/15 text-[#4ADE80] border border-[#22C55E]/30"
+                : "bg-zinc-800 text-zinc-400 border border-zinc-700"
+            }`}>
+              {hasVps ? "Happ / v2rayN" : "Ожидание VPS"}
             </span>
           }
         >
           <div className="space-y-3.5 my-1">
             <p className="text-sm text-[#A7F3D0]/80 leading-relaxed">
-              Персональный URL для автоматического импорта 5 настроенных протоколов в мобильный или десктопный клиент.
+              {hasVps
+                ? "Персональный URL для автоматического импорта 5 настроенных протоколов в мобильный или десктопный клиент."
+                : "Ссылка появится здесь после первоначальной настройки сервера в Мастере установки."}
             </p>
 
             <div className="p-3.5 rounded-xl bg-[rgba(8,20,15,0.85)] border border-[rgba(74,222,128,0.2)] flex items-center gap-2">
-              <div className="truncate font-mono text-sm text-[#4ADE80] select-all flex-1">
-                {subUrl}
+              <div className="truncate font-mono text-sm select-all flex-1">
+                {subUrl ? (
+                  <span className="text-[#4ADE80]">{subUrl}</span>
+                ) : (
+                  <span className="text-[#A7F3D0]/40 italic">Подписка не создана (VPN не настроен)</span>
+                )}
               </div>
             </div>
 
@@ -220,17 +240,22 @@ export const DashboardPage: React.FC = () => {
                 variant="primary"
                 size="md"
                 onClick={handleCopyLink}
+                disabled={!subUrl}
                 icon={copied ? <Check className="w-5 h-5 text-[#06100C]" /> : <Copy className="w-5 h-5" />}
                 className="w-full whitespace-nowrap"
               >
-                {copied ? "Ссылка скопирована в буфер!" : "Копировать ссылку для Happ"}
+                {copied
+                  ? "Ссылка скопирована в буфер!"
+                  : subUrl
+                  ? "Копировать ссылку для Happ"
+                  : "Сначала настройте сервер"}
               </GlassButton>
             </div>
 
             <div className="flex items-center justify-between pt-1 text-xs text-[#A7F3D0]/70">
               <span className="flex items-center gap-1.5">
                 <Zap className="w-3.5 h-3.5 text-[#4ADE80]" />
-                Auto-Select узел включен
+                {hasVps ? "Auto-Select узел включен" : "Ожидание настройки"}
               </span>
               <button
                 type="button"
@@ -247,7 +272,11 @@ export const DashboardPage: React.FC = () => {
         <BentoCard
           colSpan={12}
           title="Матрица активных протоколов обхода блокировок"
-          subtitle="Все 5 независимых инстансов запущены и слушают защищенные порты"
+          subtitle={
+            hasVps
+              ? "Все 5 независимых инстансов запущены и слушают защищенные порты"
+              : "Протоколы будут запущены после развертывания сервера в Мастере установки"
+          }
           icon={<Layers className="w-5 h-5 text-[#4ADE80]" />}
           action={
             <GlassButton
@@ -267,13 +296,15 @@ export const DashboardPage: React.FC = () => {
                 <div className="p-1.5 rounded-lg bg-[#22C55E]/15 text-[#4ADE80]">
                   <Shield className="w-4 h-4" />
                 </div>
-                <StatusBadge size="sm" status="online" label="TCP 20443" />
+                <StatusBadge size="sm" status={hasVps ? "online" : "neutral"} label={hasVps ? "TCP 20443" : "—"} />
               </div>
               <h4 className="text-xs font-bold text-[#ECFDF5]">VLESS Reality</h4>
               <p className="text-[11px] text-[#A7F3D0]/70 mt-0.5">Vision TLS-маскировка</p>
               <div className="mt-3 pt-2 border-t border-[rgba(74,222,128,0.1)] flex items-center justify-between text-[11px] font-mono">
                 <span className="text-[#6EE7B7]">addons.mozilla.org</span>
-                <span className="text-[#4ADE80] font-bold">~{visionLatency} мс</span>
+                <span className={`font-bold ${hasVps ? "text-[#4ADE80]" : "text-zinc-500"}`}>
+                  {hasVps && visionLatency ? `~${visionLatency} мс` : "0 мс"}
+                </span>
               </div>
             </div>
 
@@ -283,13 +314,15 @@ export const DashboardPage: React.FC = () => {
                 <div className="p-1.5 rounded-lg bg-[#4ADE80]/15 text-[#86EFAC]">
                   <Radio className="w-4 h-4" />
                 </div>
-                <StatusBadge size="sm" status="online" label="TCP 2053" />
+                <StatusBadge size="sm" status={hasVps ? "online" : "neutral"} label={hasVps ? "TCP 2053" : "—"} />
               </div>
               <h4 className="text-xs font-bold text-[#ECFDF5]">SplitHTTP (xhttp)</h4>
               <p className="text-[11px] text-[#A7F3D0]/70 mt-0.5">Обход белых списков</p>
               <div className="mt-3 pt-2 border-t border-[rgba(74,222,128,0.1)] flex items-center justify-between text-[11px] font-mono">
                 <span className="text-[#6EE7B7]">MIME Stream</span>
-                <span className="text-[#4ADE80] font-bold">~{xhttpLatency} мс</span>
+                <span className={`font-bold ${hasVps ? "text-[#4ADE80]" : "text-zinc-500"}`}>
+                  {hasVps && xhttpLatency ? `~${xhttpLatency} мс` : "0 мс"}
+                </span>
               </div>
             </div>
 
@@ -299,13 +332,15 @@ export const DashboardPage: React.FC = () => {
                 <div className="p-1.5 rounded-lg bg-[#6EE7B7]/15 text-[#4ADE80]">
                   <Layers className="w-4 h-4" />
                 </div>
-                <StatusBadge size="sm" status="online" label="TCP 8443" />
+                <StatusBadge size="sm" status={hasVps ? "online" : "neutral"} label={hasVps ? "TCP 8443" : "—"} />
               </div>
               <h4 className="text-xs font-bold text-[#ECFDF5]">gRPC Multi-Stream</h4>
               <p className="text-[11px] text-[#A7F3D0]/70 mt-0.5">Мультиплексный туннель</p>
               <div className="mt-3 pt-2 border-t border-[rgba(74,222,128,0.1)] flex items-center justify-between text-[11px] font-mono">
                 <span className="text-[#6EE7B7]">gun multiplex</span>
-                <span className="text-[#4ADE80] font-bold">~{grpcLatency} мс</span>
+                <span className={`font-bold ${hasVps ? "text-[#4ADE80]" : "text-zinc-500"}`}>
+                  {hasVps && grpcLatency ? `~${grpcLatency} мс` : "0 мс"}
+                </span>
               </div>
             </div>
 
@@ -315,13 +350,15 @@ export const DashboardPage: React.FC = () => {
                 <div className="p-1.5 rounded-lg bg-[#22C55E]/15 text-[#4ADE80]">
                   <Flame className="w-4 h-4" />
                 </div>
-                <StatusBadge size="sm" status="online" label="UDP 2083" />
+                <StatusBadge size="sm" status={hasVps ? "online" : "neutral"} label={hasVps ? "UDP 2083" : "—"} />
               </div>
               <h4 className="text-xs font-bold text-[#ECFDF5]">Hysteria 2 (QUIC)</h4>
               <p className="text-[11px] text-[#A7F3D0]/70 mt-0.5">Низкий пинг для игр</p>
               <div className="mt-3 pt-2 border-t border-[rgba(74,222,128,0.1)] flex items-center justify-between text-[11px] font-mono">
                 <span className="text-[#6EE7B7]">Salamander / Brutal</span>
-                <span className="text-[#4ADE80] font-bold">~{hysteriaLatency} мс</span>
+                <span className={`font-bold ${hasVps ? "text-[#4ADE80]" : "text-zinc-500"}`}>
+                  {hasVps && hysteriaLatency ? `~${hysteriaLatency} мс` : "0 мс"}
+                </span>
               </div>
             </div>
 
@@ -331,13 +368,15 @@ export const DashboardPage: React.FC = () => {
                 <div className="p-1.5 rounded-lg bg-[#86EFAC]/15 text-[#34D399]">
                   <Lock className="w-4 h-4" />
                 </div>
-                <StatusBadge size="sm" status="online" label="TCP 2088" />
+                <StatusBadge size="sm" status={hasVps ? "online" : "neutral"} label={hasVps ? "TCP 2088" : "—"} />
               </div>
               <h4 className="text-xs font-bold text-[#ECFDF5]">Shadowsocks-2022</h4>
               <p className="text-[11px] text-[#A7F3D0]/70 mt-0.5">2022-blake3-aes-128</p>
               <div className="mt-3 pt-2 border-t border-[rgba(74,222,128,0.1)] flex items-center justify-between text-[11px] font-mono">
                 <span className="text-[#6EE7B7]">Резервный шифр</span>
-                <span className="text-[#4ADE80] font-bold">~{ssLatency} мс</span>
+                <span className={`font-bold ${hasVps ? "text-[#4ADE80]" : "text-zinc-500"}`}>
+                  {hasVps && ssLatency ? `~${ssLatency} мс` : "0 мс"}
+                </span>
               </div>
             </div>
           </div>

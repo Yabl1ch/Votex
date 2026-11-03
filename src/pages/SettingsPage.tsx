@@ -1,26 +1,39 @@
 import React, { useState, useEffect } from "react";
 import {
   Settings,
-  Palette,
+  Sliders,
   Shield,
   Trash2,
   ExternalLink,
   RefreshCw,
-  Check,
   CheckCircle2,
   Lock,
   Globe,
   Clock,
   Key,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Download,
 } from "lucide-react";
 import { BentoGrid, BentoCard, GlassButton, StatusBadge } from "../components/bento";
 import { useAppStore } from "../store";
 import type { VaultRecord } from "../types";
 
+export interface UpdateDetails {
+  hasUpdate: boolean;
+  version: string;
+  remoteDate: string;
+  localDate: string;
+  downloadUrl?: string;
+  releaseUrl?: string;
+  message: string;
+}
+
 export const SettingsPage: React.FC = () => {
   const {
-    theme,
-    setTheme,
+    uiScale,
+    setUiScale,
     sshTimeout,
     setSshTimeout,
     autoSaveVault,
@@ -31,7 +44,7 @@ export const SettingsPage: React.FC = () => {
 
   const [savedVaultRecord, setSavedVaultRecord] = useState<VaultRecord | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false);
-  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
+  const [updateDetails, setUpdateDetails] = useState<UpdateDetails | null>(null);
   const [vaultCleared, setVaultCleared] = useState<boolean>(false);
   const [loadingVault, setLoadingVault] = useState<boolean>(false);
 
@@ -60,28 +73,132 @@ export const SettingsPage: React.FC = () => {
     };
   }, [loadSavedVpsFromVault]);
 
+  const formatDate = (isoString?: string): string => {
+    if (!isoString) return "Неизвестно";
+    try {
+      const d = new Date(isoString);
+      return d.toLocaleString("ru-RU", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return isoString;
+    }
+  };
+
   const handleCheckUpdate = async () => {
     setCheckingUpdate(true);
-    setUpdateMessage(null);
+    setUpdateDetails(null);
+
+    const localTimeStr = typeof __BUILD_TIME__ !== "undefined" ? __BUILD_TIME__ : new Date().toISOString();
+    const localTime = new Date(localTimeStr).getTime();
+    const localDateFormatted = formatDate(localTimeStr);
 
     try {
-      const resp = await fetch("https://api.github.com/repos/Yabl1ch/Votex/releases/latest", {
-        headers: { Accept: "application/vnd.github.v3+json" },
-      });
+      // 1. Try GitHub Releases API first
+      let remoteAssetDateStr: string | null = null;
+      let remoteVersion = "1.0.0";
+      let downloadUrl = "https://github.com/Yabl1ch/Votex/releases/latest/download/votex.exe";
+      let releaseUrl = "https://github.com/Yabl1ch/Votex/releases/latest";
 
-      if (resp.ok) {
-        const data = await resp.json();
-        const tag = data.tag_name || "v2.0.0";
-        setUpdateMessage(`Установлена актуальная версия Votex (${tag}). Обновлений не требуется.`);
-      } else {
-        setUpdateMessage("У вас установлена последняя сборка Votex v2.0.0 (Phase 4 Ready)");
+      try {
+        const resp = await fetch("https://api.github.com/repos/Yabl1ch/Votex/releases/latest", {
+          headers: { Accept: "application/vnd.github.v3+json" },
+        });
+
+        if (resp.ok) {
+          const data = await resp.json();
+          remoteVersion = data.tag_name || "1.0.0";
+          releaseUrl = data.html_url || releaseUrl;
+
+          // Find votex.exe asset to check its actual upload timestamp
+          const exeAsset = Array.isArray(data.assets)
+            ? data.assets.find((a: any) => a.name?.toLowerCase().endsWith(".exe"))
+            : null;
+
+          if (exeAsset) {
+            remoteAssetDateStr = exeAsset.updated_at || exeAsset.created_at || data.published_at;
+            downloadUrl = exeAsset.browser_download_url || downloadUrl;
+          } else {
+            remoteAssetDateStr = data.published_at;
+          }
+        }
+      } catch (apiErr) {
+        console.warn("GitHub API check failed, trying raw version.json fallback:", apiErr);
       }
-    } catch {
-      // Offline fallback
-      setUpdateMessage("У вас установлена последняя стабильная версия Votex v2.0.0 (Phase 4 Ready)");
+
+      // 2. Fallback to raw githubusercontent if API was rate-limited
+      if (!remoteAssetDateStr) {
+        try {
+          const rawResp = await fetch("https://raw.githubusercontent.com/Yabl1ch/Votex/main/version.json", {
+            cache: "no-store",
+          });
+          if (rawResp.ok) {
+            const rawData = await rawResp.json();
+            remoteVersion = rawData.version || remoteVersion;
+            remoteAssetDateStr = rawData.build_time;
+            downloadUrl = rawData.download_url || downloadUrl;
+            releaseUrl = rawData.release_url || releaseUrl;
+          }
+        } catch (rawErr) {
+          console.warn("Raw fallback check error:", rawErr);
+        }
+      }
+
+      if (remoteAssetDateStr) {
+        const remoteTime = new Date(remoteAssetDateStr).getTime();
+        const remoteDateFormatted = formatDate(remoteAssetDateStr);
+
+        // If remote asset is newer than local build by more than 60 seconds
+        const hasUpdate = remoteTime - localTime > 60 * 1000;
+
+        if (hasUpdate) {
+          setUpdateDetails({
+            hasUpdate: true,
+            version: remoteVersion,
+            remoteDate: remoteDateFormatted,
+            localDate: localDateFormatted,
+            downloadUrl,
+            releaseUrl,
+            message: `Доступна новая сборка! Бинарный файл на GitHub обновлен: ${remoteDateFormatted}`,
+          });
+        } else {
+          setUpdateDetails({
+            hasUpdate: false,
+            version: remoteVersion,
+            remoteDate: remoteDateFormatted,
+            localDate: localDateFormatted,
+            downloadUrl,
+            releaseUrl,
+            message: `У вас установлена последняя сборка (от ${localDateFormatted}). Дата релиза на GitHub: ${remoteDateFormatted}.`,
+          });
+        }
+      } else {
+        // Pure offline fallback
+        setUpdateDetails({
+          hasUpdate: false,
+          version: typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.0.0",
+          remoteDate: "Недоступно (оффлайн)",
+          localDate: localDateFormatted,
+          downloadUrl,
+          releaseUrl,
+          message: `Текущая установленная сборка: ${localDateFormatted}. Сетевое подключение к GitHub временно недоступно.`,
+        });
+      }
+    } catch (err) {
+      console.warn("Update check total failure:", err);
+      setUpdateDetails({
+        hasUpdate: false,
+        version: "1.0.0",
+        remoteDate: "Ошибка сети",
+        localDate: localDateFormatted,
+        message: "Не удалось соединиться с сервером обновлений GitHub. Проверьте подключение к сети.",
+      });
     } finally {
       setCheckingUpdate(false);
-      setTimeout(() => setUpdateMessage(null), 4000);
     }
   };
 
@@ -102,66 +219,88 @@ export const SettingsPage: React.FC = () => {
           Настройки приложения
         </h1>
         <p className="text-sm text-[#A7F3D0]/70 mt-1">
-          Конфигурация параметров подключения, тем оформления и локального зашифрованного хранилища Vault
+          Конфигурация масштаба интерфейса, параметров соединения и локального зашифрованного хранилища Vault
         </p>
       </div>
 
       <BentoGrid cols={12}>
-        {/* Module 1: Appearance & Design Theme (Col 6) */}
+        {/* Module 1: UI Scaling Controls (Col 6) - Replaces Theme Selector */}
         <BentoCard
           colSpan={6}
           glow
-          icon={<Palette className="w-5 h-5 text-[#4ADE80]" />}
-          title="Тема оформления"
-          subtitle="Цветовая палитра и визуальный стиль интерфейса"
+          icon={<Sliders className="w-5 h-5 text-[#4ADE80]" />}
+          title="Масштаб интерфейса"
+          subtitle="Регулировка размера шрифтов, кнопок и карточек приложения"
           badge={
             <StatusBadge
               status="online"
-              label="Активна"
+              label={`${uiScale}%`}
             />
           }
         >
           <div className="space-y-4 my-2">
             <p className="text-sm text-[#A7F3D0]/80 leading-relaxed">
-              Выберите цветовую палитру интерфейса. Все варианты строго используют природные изумрудно-мятные оттенки и матовое стекло.
+              Настройте комфортный размер элементов интерфейса под разрешение вашего монитора. Тема оформления зафиксирована в фирменном стиле Obsidian Deep Forest по умолчанию.
             </p>
 
-            <div className="grid grid-cols-2 gap-3">
-              {/* Theme 1: Obsidian */}
-              <button
-                type="button"
-                onClick={() => setTheme("obsidian")}
-                className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
-                  theme === "obsidian"
-                    ? "bg-[rgba(15,34,26,0.9)] border-[#4ADE80] shadow-[0_0_16px_rgba(74,222,128,0.25)]"
-                    : "bg-[rgba(8,20,15,0.6)] border-[rgba(74,222,128,0.15)] hover:border-[rgba(74,222,128,0.3)]"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="w-5 h-5 rounded-full bg-[#06100C] border border-[#22C55E]" />
-                  {theme === "obsidian" && <Check className="w-5 h-5 text-[#4ADE80]" />}
-                </div>
-                <h4 className="text-sm font-bold text-[#ECFDF5]">Obsidian Deep Forest</h4>
-                <p className="text-xs text-[#A7F3D0]/70 mt-1">Обсидиановый холст и мята</p>
-              </button>
+            {/* Scale Presets Grid */}
+            <div className="grid grid-cols-4 gap-2.5">
+              {[85, 90, 100, 115].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setUiScale(preset)}
+                  className={`py-2.5 px-3 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
+                    uiScale === preset
+                      ? "bg-[#22C55E]/25 text-[#4ADE80] border border-[#22C55E]/50 shadow-[0_0_12px_rgba(74,222,128,0.25)]"
+                      : "bg-[rgba(8,20,15,0.7)] text-[#A7F3D0]/70 border border-[rgba(74,222,128,0.14)] hover:border-[rgba(74,222,128,0.3)]"
+                  }`}
+                >
+                  {preset}% {preset === 100 && "(Стандарт)"}
+                </button>
+              ))}
+            </div>
 
-              {/* Theme 2: Sage Glass */}
-              <button
-                type="button"
-                onClick={() => setTheme("sage")}
-                className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
-                  theme === "sage"
-                    ? "bg-[rgba(18,44,34,0.9)] border-[#4ADE80] shadow-[0_0_16px_rgba(74,222,128,0.25)]"
-                    : "bg-[rgba(8,20,15,0.6)] border-[rgba(74,222,128,0.15)] hover:border-[rgba(74,222,128,0.3)]"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="w-5 h-5 rounded-full bg-[#081B14] border border-[#6EE7B7]" />
-                  {theme === "sage" && <Check className="w-5 h-5 text-[#4ADE80]" />}
+            {/* Fine Step Adjusters */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[rgba(8,20,15,0.75)] border border-[rgba(74,222,128,0.16)]">
+              <span className="text-sm font-medium text-[#ECFDF5]">
+                Точная подстройка:
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setUiScale(uiScale - 5)}
+                  disabled={uiScale <= 75}
+                  title="Уменьшить масштаб на 5%"
+                  className="flex items-center justify-center w-9 h-9 rounded-xl bg-[rgba(15,34,26,0.8)] border border-[rgba(74,222,128,0.25)] text-[#4ADE80] hover:bg-[rgba(74,222,128,0.15)] disabled:opacity-40 cursor-pointer transition-colors"
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </button>
+
+                <div className="w-16 text-center font-mono font-bold text-sm text-[#4ADE80]">
+                  {uiScale}%
                 </div>
-                <h4 className="text-sm font-bold text-[#ECFDF5]">Sage Glass</h4>
-                <p className="text-xs text-[#A7F3D0]/70 mt-1">Шалфейный органический оттенок</p>
-              </button>
+
+                <button
+                  type="button"
+                  onClick={() => setUiScale(uiScale + 5)}
+                  disabled={uiScale >= 135}
+                  title="Увеличить масштаб на 5%"
+                  className="flex items-center justify-center w-9 h-9 rounded-xl bg-[rgba(15,34,26,0.8)] border border-[rgba(74,222,128,0.25)] text-[#4ADE80] hover:bg-[rgba(74,222,128,0.15)] disabled:opacity-40 cursor-pointer transition-colors"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setUiScale(100)}
+                  title="Сбросить на 100%"
+                  className="flex items-center justify-center w-9 h-9 rounded-xl bg-[rgba(15,34,26,0.8)] border border-[rgba(74,222,128,0.25)] text-[#A7F3D0]/70 hover:text-[#4ADE80] hover:bg-[rgba(74,222,128,0.15)] cursor-pointer transition-colors ml-1"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
         </BentoCard>
@@ -291,7 +430,7 @@ export const SettingsPage: React.FC = () => {
           </div>
         </BentoCard>
 
-        {/* Module 4: About Votex Project (Col 6) */}
+        {/* Module 4: About Votex Project & Live Release Inspector (Col 6) */}
         <BentoCard
           colSpan={6}
           icon={<Shield className="w-5 h-5 text-[#4ADE80]" />}
@@ -303,15 +442,65 @@ export const SettingsPage: React.FC = () => {
               Votex — полностью автономный инструмент автоматического развертывания и харднинга личных VPN-серверов с защитой от ТСПУ и DPI.
             </p>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-              <span className="text-[#A7F3D0]/70 font-mono">Версия: 2.0.0 (Phase 4 Ready)</span>
-              <span className="text-[#4ADE80] font-mono font-medium">Лицензия: MIT</span>
+            <div className="grid grid-cols-2 gap-2 text-sm p-3 rounded-xl bg-[rgba(8,20,15,0.7)] border border-[rgba(74,222,128,0.14)]">
+              <div>
+                <span className="text-[11px] text-[#A7F3D0]/60 uppercase block">Версия приложения</span>
+                <span className="text-sm font-mono font-bold text-[#ECFDF5]">v1.0.0 (Release)</span>
+              </div>
+              <div>
+                <span className="text-[11px] text-[#A7F3D0]/60 uppercase block">Дата текущей сборки</span>
+                <span className="text-xs font-mono text-[#4ADE80] block mt-0.5">
+                  {formatDate(typeof __BUILD_TIME__ !== "undefined" ? __BUILD_TIME__ : undefined)}
+                </span>
+              </div>
             </div>
 
-            {updateMessage && (
-              <div className="p-3 rounded-xl bg-[#22C55E]/15 border border-[#22C55E]/30 text-sm text-[#4ADE80] flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 shrink-0" />
-                <span>{updateMessage}</span>
+            {updateDetails && (
+              <div
+                className={`p-3.5 rounded-xl border text-sm flex flex-col gap-2.5 ${
+                  updateDetails.hasUpdate
+                    ? "bg-[#22C55E]/20 border-[#22C55E]/50 text-[#ECFDF5]"
+                    : "bg-[rgba(8,20,15,0.85)] border-[rgba(74,222,128,0.3)] text-[#A7F3D0]"
+                }`}
+              >
+                <div className="flex items-start gap-2.5">
+                  {updateDetails.hasUpdate ? (
+                    <Download className="w-5 h-5 text-[#4ADE80] shrink-0 mt-0.5" />
+                  ) : (
+                    <CheckCircle2 className="w-5 h-5 text-[#4ADE80] shrink-0 mt-0.5" />
+                  )}
+                  <div className="min-w-0">
+                    <span className="font-semibold block">{updateDetails.message}</span>
+                    <span className="text-xs text-[#A7F3D0]/70 block mt-1">
+                      Сборка на GitHub: {updateDetails.remoteDate} • У вас: {updateDetails.localDate}
+                    </span>
+                  </div>
+                </div>
+
+                {updateDetails.hasUpdate && updateDetails.downloadUrl && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <a
+                      href={updateDetails.downloadUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-[#22C55E] text-[#06100C] font-semibold text-xs hover:bg-[#4ADE80] transition-colors"
+                    >
+                      <Download className="w-4 h-4" />
+                      Скачать votex.exe
+                    </a>
+                    {updateDetails.releaseUrl && (
+                      <a
+                        href={updateDetails.releaseUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center justify-center p-2 rounded-xl bg-[rgba(15,34,26,0.8)] border border-[rgba(74,222,128,0.3)] text-[#ECFDF5] hover:border-[#4ADE80] transition-colors"
+                        title="Открыть релиз на GitHub"
+                      >
+                        <ExternalLink className="w-4 h-4 text-[#4ADE80]" />
+                      </a>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -324,7 +513,7 @@ export const SettingsPage: React.FC = () => {
                 icon={<RefreshCw className={`w-5 h-5 text-[#4ADE80] ${checkingUpdate ? "animate-spin" : ""}`} />}
                 className="flex-1 whitespace-nowrap"
               >
-                Проверить обновления
+                {checkingUpdate ? "Сверка с GitHub..." : "Проверить обновления"}
               </GlassButton>
 
               <a

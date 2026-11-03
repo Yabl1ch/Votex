@@ -50,7 +50,9 @@ export const navItems: NavItem[] = [
 ];
 
 export const Sidebar: React.FC = () => {
-  const { activeTab, setActiveTab, isConnected, latency } = useAppStore();
+  const { activeTab, setActiveTab, isConnected, latency, vpsConfig, report } = useAppStore();
+
+  const currentHost = (vpsConfig.host || report?.server_ip || "").trim();
 
   return (
     <aside className="w-68 h-full flex flex-col justify-between p-4 sm:p-5 bg-[rgba(15,34,26,0.7)] backdrop-blur-[24px] saturate-[160%] border-r border-[rgba(74,222,128,0.18)] shadow-[inset_0_1px_1px_0_rgba(255,255,255,0.12),0_16px_36px_-12px_rgba(0,0,0,0.5)] select-none shrink-0 z-30">
@@ -153,17 +155,17 @@ export const Sidebar: React.FC = () => {
                 {isConnected ? "Сервер на связи" : "Нет соединения"}
               </span>
               <span className="text-[11px] text-[#A7F3D0]/60 font-mono block truncate">
-                {isConnected ? "89.125.126.90" : "Требуется VPS"}
+                {currentHost ? currentHost : "Требуется VPS"}
               </span>
             </div>
           </div>
 
-          {latency !== null && isConnected && (
-            <div className="flex items-center gap-1 text-xs font-mono text-[#4ADE80] font-semibold px-2 py-0.5 rounded bg-[#22C55E]/10 border border-[#22C55E]/20">
-              <Wifi className="w-3.5 h-3.5" />
-              <span>{latency} мс</span>
-            </div>
-          )}
+          <div className="flex items-center gap-1 text-xs font-mono font-semibold px-2 py-0.5 rounded bg-[rgba(15,34,26,0.6)] border border-[rgba(74,222,128,0.2)]">
+            <Wifi className={`w-3.5 h-3.5 ${isConnected ? "text-[#4ADE80]" : "text-zinc-500"}`} />
+            <span className={isConnected ? "text-[#4ADE80]" : "text-zinc-400"}>
+              {isConnected && latency !== null ? `${latency} мс` : "0 мс"}
+            </span>
+          </div>
         </div>
 
         {/* Encrypted Vault Badge */}

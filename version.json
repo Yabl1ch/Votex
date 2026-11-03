@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "build_time": "2026-11-03T16:05:44Z",
+  "tag": "v1.0.0",
+  "release_url": "https://github.com/Yabl1ch/Votex/releases/tag/v1.0.0",
+  "download_url": "https://github.com/Yabl1ch/Votex/releases/download/v1.0.0/votex.exe",
+  "notes": "Оффлайн-бинарник с нативным custom-protocol, управлением масштабом UI и инспектором обновлений"
+}

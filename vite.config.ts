@@ -8,6 +8,10 @@ const port = process.env.VITE_PORT ? parseInt(process.env.VITE_PORT, 10) : defau
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  define: {
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    __APP_VERSION__: JSON.stringify("1.0.0"),
+  },
   plugins: [
     react(),
     tailwindcss(),

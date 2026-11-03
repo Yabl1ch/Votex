@@ -81,14 +81,14 @@ export const BentoCard: React.FC<BentoCardProps> = ({
                 {icon}
               </div>
             )}
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               {title && (
-                <h3 className="text-base sm:text-lg font-semibold tracking-tight text-[#ECFDF5] truncate">
+                <h3 className="text-base sm:text-lg font-semibold tracking-tight text-[#ECFDF5]">
                   {title}
                 </h3>
               )}
               {subtitle && (
-                <p className="text-xs sm:text-sm text-[#A7F3D0]/70 truncate">{subtitle}</p>
+                <p className="text-xs sm:text-sm text-[#A7F3D0]/70 mt-0.5">{subtitle}</p>
               )}
             </div>
           </div>

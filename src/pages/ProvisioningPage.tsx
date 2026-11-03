@@ -301,20 +301,8 @@ export const ProvisioningPage: React.FC = () => {
               </div>
             )}
 
-            {/* Action Buttons: Strictly whitespace-nowrap */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-3 mt-1 border-t border-[rgba(74,222,128,0.1)]">
-              <GlassButton
-                variant="secondary"
-                size="md"
-                onClick={handleTestConnection}
-                loading={status === "testing"}
-                disabled={status === "provisioning"}
-                icon={<Activity className="w-5 h-5 text-[#4ADE80]" />}
-                className="flex-1 whitespace-nowrap"
-              >
-                Проверить соединение
-              </GlassButton>
-
+            {/* Action Buttons: 2 Neat Full-Width Rows (Fixes Overflow) */}
+            <div className="flex flex-col gap-2.5 pt-3 mt-1 border-t border-[rgba(74,222,128,0.1)]">
               <GlassButton
                 variant="primary"
                 size="md"
@@ -322,9 +310,21 @@ export const ProvisioningPage: React.FC = () => {
                 loading={status === "provisioning"}
                 disabled={status === "testing"}
                 icon={<Zap className="w-5 h-5" />}
-                className="flex-1 whitespace-nowrap"
+                className="w-full justify-center"
               >
                 Настроить и защитить сервер
+              </GlassButton>
+
+              <GlassButton
+                variant="secondary"
+                size="md"
+                onClick={handleTestConnection}
+                loading={status === "testing"}
+                disabled={status === "provisioning"}
+                icon={<Activity className="w-5 h-5 text-[#4ADE80]" />}
+                className="w-full justify-center"
+              >
+                Проверить соединение
               </GlassButton>
             </div>
           </BentoCard>
