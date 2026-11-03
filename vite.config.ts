@@ -3,6 +3,9 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 
+const defaultPort = 1420;
+const port = process.env.VITE_PORT ? parseInt(process.env.VITE_PORT, 10) : defaultPort;
+
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
@@ -16,10 +19,11 @@ export default defineConfig({
   },
   // Prevent Vite from obscuring Rust errors
   clearScreen: false,
-  // Tauri expects a fixed port, fail if that port is not available
+  // Isolated Tauri port (defaults to 1420 instead of generic 5173 to avoid conflicts with other web apps)
   server: {
-    port: 5173,
+    port,
     strictPort: true,
+    host: "127.0.0.1",
   },
   build: {
     // Tauri uses Chromium on Windows/Linux and WebKit on macOS
