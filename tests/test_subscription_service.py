@@ -151,6 +151,7 @@ class TestSubscriptionService(unittest.TestCase):
 
         direct_rules = [r for r in rules if r.get("outboundTag") == "direct"]
         self.assertTrue(any("geoip:ru" in r.get("ip", []) for r in direct_rules))
+        self.assertTrue(any(self.sample_config["server_ip"] in r.get("ip", []) for r in direct_rules))
         self.assertTrue(any("geosite:category-ru" in r.get("domain", []) for r in direct_rules))
 
         proxy_rule = next(r for r in rules if r.get("balancerTag") == "VotexBalancer")

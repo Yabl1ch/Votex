@@ -279,6 +279,13 @@ cat << EOF > /usr/local/etc/xray/config.json
   "log": {
     "loglevel": "warning"
   },
+  "dns": {
+    "servers": [
+      "1.1.1.1",
+      "8.8.8.8",
+      "localhost"
+    ]
+  },
   "inbounds": [
     {
       "tag": "vless-vision",
@@ -964,7 +971,12 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 {
                     "type": "field",
                     "outboundTag": "direct",
-                    "ip": ["geoip:ru", "geoip:private"],
+                    "port": "22,18080",
+                },
+                {
+                    "type": "field",
+                    "outboundTag": "direct",
+                    "ip": [server_ip, "geoip:ru", "geoip:private"],
                 },
                 {
                     "type": "field",
