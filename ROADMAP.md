@@ -180,11 +180,11 @@
 ### Задачи:
 1. **Релизная компиляция Windows бинарника**:
    - Запуск оптимизированной сборки: `cargo tauri build`.
-   - Проверка сформированного исполняемого файла `src-tauri/target/release/votex.exe` (и бандлов установщиков `.msi` и NSIS `setup.exe`).
-   - Проверка запуска `.exe` в Windows (потребление RAM < 25 МБ, корректное отображение стекла и шрифтов).
+   - Проверка сформированного исполняемого файла `src-tauri/target/release/votex.exe` (автономный портативный файл с embedded WebView2Loader и crt-static).
+   - Проверка запуска `.exe` в Windows (потребление RAM ~4–34 МБ, корректное отображение стекла и шрифтов).
 2. **Публикация GitHub Release**:
    - Создание официального тега и релиза с помощью GitHub CLI:
-     `gh release create v1.0.0 src-tauri/target/release/votex.exe src-tauri/target/release/bundle/nsis/Votex_1.0.0_x64-setup.exe src-tauri/target/release/bundle/msi/Votex_1.0.0_x64_en-US.msi --title "Votex v1.0.0 - MVP Release" ...`
+     `gh release create v1.0.0 src-tauri/target/release/votex.exe src-tauri/target/release/Votex_1.0.0_portable.zip --title "Votex v1.0.0 - MVP Release" ...`
 3. **Финализация документации MVP в `README.md`**:
    - Добавление бейджей статуса (Build passing, Release v1.0.0, Download votex.exe, Status Production MVP, License MIT).
    - Пошаговое руководство «Быстрый старт для пользователя (Quick Start Guide)»: как скачать `.exe`, как ввести IP сервера, как получить ссылку и вставить в Happ / v2rayN.
@@ -193,7 +193,7 @@
    - Отправка финального состояния проекта в ветку `main`.
 
 ### Критерии приемки и верификация:
-- [x] Бинарный `.exe` собран и успешно запускается без дополнительных зависимостей (13.25 МБ, ~4 МБ RAM в простое).
-- [x] Сформированы инсталляторы NSIS (`.exe`) и WiX (`.msi`) в директории `bundle/`.
-- [x] Релиз с прикрепленными бинарниками опубликован на GitHub (`gh release view v1.0.0`).
+- [x] Бинарный `.exe` собран и успешно запускается без дополнительных зависимостей (~14 МБ, портативный запуск без инсталлятора).
+- [x] Подготовлен портативный архив `Votex_1.0.0_portable.zip`.
+- [x] Релиз с прикрепленным бинарником опубликован на GitHub (`gh release view v1.0.0`).
 - [x] `README.md` полностью оформлен как профессиональный Open Source проект.

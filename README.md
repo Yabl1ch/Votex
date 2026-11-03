@@ -17,8 +17,8 @@
 Votex спроектирован так, чтобы любой пользователь мог развернуть собственный защищенный сервер за 2 минуты без ручного ввода команд в Linux-консоли.
 
 1. **Шаг 1: Скачать Votex**
-   - Скачайте готовый автономный бинарник [`votex.exe`](https://github.com/Yabl1ch/Votex/releases/latest/download/votex.exe) или инсталлятор [`Votex_1.0.0_x64-setup.exe`](https://github.com/Yabl1ch/Votex/releases/latest) из раздела [Releases](https://github.com/Yabl1ch/Votex/releases/latest).
-   - Приложение полностью независимо, не требует установки рантаймов (Node.js/Python) и весит ~13 МБ.
+   - Скачайте готовый автономный бинарник [`votex.exe`](https://github.com/Yabl1ch/Votex/releases/latest/download/votex.exe) (или портативный архив [`Votex_1.0.0_portable.zip`](https://github.com/Yabl1ch/Votex/releases/latest)) из раздела [Releases](https://github.com/Yabl1ch/Votex/releases/latest).
+   - Приложение полностью портативно, не требует установки рантаймов (Node.js/Python) и инсталляторов, весит ~14 МБ.
 
 2. **Шаг 2: Ввести реквизиты купленного VPS**
    - Запустите `votex.exe`.
@@ -82,7 +82,7 @@ Votex спроектирован так, чтобы любой пользова�
 | **Фаза 2** | **Инициализация ядра Tauri v2 и нативного SSH-модуля (Rust)** | **Завершена (100%)** | `src-tauri/` (IPC, потоковый SSH, AES-GCM Vault), React 19 UI, тесты |
 | **Фаза 3** | **Фронтенд и дизайн-система `organic-glass-bento-ui`** | **Завершена (100%)** | Библиотека Bento-компонентов, CSS-токены, Framer Motion, 6 вкладок, SVG-only |
 | **Фаза 4** | **Реализация экранов, бизнес-логики и бенчмарков** | **Завершена (100%)** | Сквозной IPC, валидация IPv4/SSH, QR-код подписки, бенчмарки, 39/39 тестов |
-| **Фаза 5** | **Релизная сборка `.exe`, публикация на GitHub и выпуск MVP** | **Завершена (100%)** | Релизный `votex.exe`, инсталляторы NSIS/MSI, публикация GitHub Release v1.0.0 |
+| **Фаза 5** | **Релизная сборка `.exe`, публикация на GitHub и выпуск MVP** | **Завершена (100%)** | Автономный Windows бинарник `votex.exe`, портативный архив, публикация GitHub Release v1.0.0 |
 
 ---
 
@@ -231,8 +231,7 @@ pnpm tauri build
 
 Собранные файлы будут размещены в:
 - Портативный исполняемый файл: `src-tauri/target/release/votex.exe`
-- Инсталлятор NSIS: `src-tauri/target/release/bundle/nsis/Votex_1.0.0_x64-setup.exe`
-- Инсталлятор WiX MSI: `src-tauri/target/release/bundle/msi/Votex_1.0.0_x64_en-US.msi`
+- Портативный ZIP-архив: `src-tauri/target/release/Votex_1.0.0_portable.zip`
 
 ---
 
