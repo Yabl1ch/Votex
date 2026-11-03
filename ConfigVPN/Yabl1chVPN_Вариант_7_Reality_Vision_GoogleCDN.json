@@ -1,0 +1,454 @@
+{
+    "burstObservatory": {
+        "pingConfig": {
+            "destination": "http://www.gstatic.com/generate_204",
+            "interval": "1m",
+            "sampling": 1,
+            "timeout": "6s"
+        },
+        "subjectSelector": [
+            "proxy"
+        ]
+    },
+    "dns": {
+        "hosts": {
+            "dns.apple.com": [
+                "0.0.0.0"
+            ],
+            "doh.dns.apple.com": [
+                "0.0.0.0"
+            ],
+            "mask-api.icloud.com": [
+                "0.0.0.0"
+            ],
+            "mask-h2.icloud.com": [
+                "0.0.0.0"
+            ],
+            "mask.icloud.com": [
+                "0.0.0.0"
+            ]
+        },
+        "queryStrategy": "UseIP",
+        "servers": [
+            {
+                "address": "77.88.8.8",
+                "domains": [
+                    "geosite:category-ru",
+                    "geosite:category-gov-ru",
+                    "geosite:yandex",
+                    "geosite:vk",
+                    "geosite:ok",
+                    "regexp:^(.+\\.)?ru$",
+                    "regexp:^(.+\\.)?su$",
+                    "regexp:^(.+\\.)?xn--p1ai$",
+                    "domain:userapi.com",
+                    "domain:vk.com",
+                    "domain:vk.me",
+                    "domain:vk.cc",
+                    "domain:vk.link",
+                    "domain:vk.company",
+                    "domain:vk.design",
+                    "domain:vk.team",
+                    "domain:vkontakte.ru",
+                    "domain:vk-cdn.net",
+                    "domain:vk-cdn.me",
+                    "domain:vk-apps.com",
+                    "domain:vkuser.net",
+                    "domain:vkuseraudio.com",
+                    "domain:vkuservideo.com",
+                    "domain:vkuservideo.net",
+                    "domain:vkuserlive.net",
+                    "domain:vkcache.com",
+                    "domain:vkmessenger.com",
+                    "domain:vkmessenger.app",
+                    "domain:vkgo.app",
+                    "domain:vklive.app",
+                    "domain:vk-portal.net",
+                    "domain:mvk.com",
+                    "domain:mycdn.me",
+                    "domain:mradx.net",
+                    "domain:tamtam.chat",
+                    "domain:okolo.app",
+                    "domain:perekrestok.com",
+                    "domain:5post.market",
+                    "domain:chizhik.club",
+                    "domain:x5.com",
+                    "domain:x5.tech",
+                    "domain:x5.group",
+                    "domain:x5.digital",
+                    "domain:x5.media",
+                    "domain:x5.team",
+                    "domain:x5.ai",
+                    "domain:x5static.net",
+                    "domain:ozon.com",
+                    "domain:ozon.by",
+                    "domain:ozon.kz",
+                    "domain:ozon.tm",
+                    "domain:ozonusercontent.com",
+                    "domain:ozonru.me",
+                    "domain:paywb.com",
+                    "domain:okko.tv",
+                    "domain:okko.sport",
+                    "domain:kinopoisk-ru.clstorage.net",
+                    "domain:yandex.com",
+                    "domain:yandex.net",
+                    "domain:yandex.by",
+                    "domain:yandex.kz",
+                    "domain:yandex.uz",
+                    "domain:yandex.com.tr",
+                    "domain:yandex.cloud",
+                    "domain:yandexcloud.net",
+                    "domain:yandexcom.net",
+                    "domain:yandexmetrica.com",
+                    "domain:yandexadexchange.net",
+                    "domain:yandexwebcache.org",
+                    "domain:yastatic.net",
+                    "domain:yastat.net",
+                    "domain:naydex.net",
+                    "domain:turbopages.org",
+                    "domain:webvisor.com",
+                    "domain:webvisor.org",
+                    "domain:yads.tech",
+                    "domain:yandex-bank.net",
+                    "domain:rostaxi.org",
+                    "domain:avs.io",
+                    "domain:aviasales.com",
+                    "domain:2gis.com",
+                    "domain:2gis.ae",
+                    "domain:2gis.az",
+                    "domain:2gis.by",
+                    "domain:2gis.kz",
+                    "domain:2gis.kg",
+                    "domain:2gis.uz",
+                    "domain:2gis.am",
+                    "domain:2gis.ge",
+                    "domain:2gis.cz",
+                    "domain:2gis.com.cy",
+                    "domain:sberbank.com",
+                    "domain:sber-bank.by",
+                    "domain:bps-sberbank.by",
+                    "domain:sber.pro",
+                    "domain:giga.chat",
+                    "domain:sbercloud.tech",
+                    "domain:megamarket.tech",
+                    "domain:lenta.tech",
+                    "domain:unirest.tech",
+                    "domain:tochka.com",
+                    "domain:tochka-tech.com",
+                    "domain:gazprombank.com",
+                    "domain:gazprombank.investments",
+                    "domain:tinkoff-group.com",
+                    "domain:tbank-online.com",
+                    "domain:cdn-tinkoff.ru",
+                    "domain:dodois.com",
+                    "domain:dodois.io",
+                    "domain:dodopizza.com",
+                    "domain:dodostatic.net",
+                    "domain:fix-price.com",
+                    "domain:lenta.com",
+                    "domain:metro-cc.ru",
+                    "domain:zvuk.com",
+                    "domain:zvuk-b2b.com",
+                    "domain:cloudru.cn",
+                    "domain:trbcdn.net",
+                    "domain:cdnvideohub.com",
+                    "domain:restream-media.net",
+                    "domain:boosty.to",
+                    "domain:donationalerts.com",
+                    "domain:memealerts.com",
+                    "domain:youla.io",
+                    "domain:dzeninfra.ru",
+                    "domain:emias.info",
+                    "domain:unidraw.io",
+                    "domain:2ip.ru",
+                    "domain:ip-api.com",
+                    "domain:ipify.org",
+                    "domain:ipapi.co",
+                    "domain:whoer.net",
+                    "domain:ifconfig.me",
+                    "domain:icanhazip.com",
+                    "domain:myip.com",
+                    "domain:iplocation.net",
+                    "domain:ipleak.net",
+                    "domain:seeip.org",
+                    "domain:ident.me",
+                    "domain:wtfismyip.com",
+                    "domain:check-host.net"
+                ],
+                "skipFallback": true
+            },
+            "1.1.1.1",
+            "1.0.0.1"
+        ]
+    },
+    "inbounds": [
+        {
+            "listen": "127.0.0.1",
+            "port": 10808,
+            "protocol": "socks",
+            "settings": {
+                "auth": "noauth",
+                "udp": true
+            },
+            "sniffing": {
+                "destOverride": [
+                    "http",
+                    "tls",
+                    "quic"
+                ],
+                "enabled": true,
+                "routeOnly": false
+            },
+            "tag": "socks"
+        },
+        {
+            "listen": "127.0.0.1",
+            "port": 10809,
+            "protocol": "http",
+            "settings": {
+                "allowTransparent": false
+            },
+            "sniffing": {
+                "destOverride": [
+                    "http",
+                    "tls",
+                    "quic"
+                ],
+                "enabled": true,
+                "routeOnly": false
+            },
+            "tag": "http"
+        }
+    ],
+    "meta": null,
+    "outbounds": [
+        {
+            "protocol": "vless",
+            "settings": {
+                "vnext": [
+                    {
+                        "address": "89.125.126.90",
+                        "port": 20444,
+                        "users": [
+                            {
+                                "encryption": "none",
+                                "flow": "xtls-rprx-vision",
+                                "id": "4927cee9-5270-41b2-9d86-db236a52d309"
+                            }
+                        ]
+                    }
+                ]
+            },
+            "streamSettings": {
+                "network": "tcp",
+                "security": "reality",
+                "realitySettings": {
+                    "fingerprint": "chrome",
+                    "publicKey": "i_JRur08CAZ87QTAtF-xuYHoP3_hDTTg6TFuzdvquU8",
+                    "serverName": "dl.google.com",
+                    "shortId": "14051b7628b34476",
+                    "spiderX": "/"
+                },
+                "tcpSettings": {
+                    "header": {
+                        "type": "none"
+                    }
+                }
+            },
+            "tag": "proxy"
+        },
+        {
+            "protocol": "freedom",
+            "tag": "direct"
+        },
+        {
+            "protocol": "blackhole",
+            "tag": "block"
+        }
+    ],
+    "remarks": "Yabl1chVPN | Reality Google CDN",
+    "routing": {
+        "domainMatcher": "hybrid",
+        "domainStrategy": "IPIfNonMatch",
+        "rules": [
+            {
+                "domain": [
+                    "domain:mask.icloud.com",
+                    "domain:mask-h2.icloud.com",
+                    "domain:mask-api.icloud.com",
+                    "domain:dns.apple.com",
+                    "domain:doh.dns.apple.com"
+                ],
+                "outboundTag": "block",
+                "type": "field"
+            },
+            {
+                "outboundTag": "block",
+                "protocol": [
+                    "bittorrent"
+                ],
+                "type": "field"
+            },
+            {
+                "domain": [
+                    "geosite:category-ru",
+                    "geosite:category-gov-ru",
+                    "geosite:yandex",
+                    "geosite:vk",
+                    "geosite:ok",
+                    "regexp:^(.+\\.)?ru$",
+                    "regexp:^(.+\\.)?su$",
+                    "regexp:^(.+\\.)?xn--p1ai$",
+                    "domain:userapi.com",
+                    "domain:vk.com",
+                    "domain:vk.me",
+                    "domain:vk.cc",
+                    "domain:vk.link",
+                    "domain:vk.company",
+                    "domain:vk.design",
+                    "domain:vk.team",
+                    "domain:vkontakte.ru",
+                    "domain:vk-cdn.net",
+                    "domain:vk-cdn.me",
+                    "domain:vk-apps.com",
+                    "domain:vkuser.net",
+                    "domain:vkuseraudio.com",
+                    "domain:vkuservideo.com",
+                    "domain:vkuservideo.net",
+                    "domain:vkuserlive.net",
+                    "domain:vkcache.com",
+                    "domain:vkmessenger.com",
+                    "domain:vkmessenger.app",
+                    "domain:vkgo.app",
+                    "domain:vklive.app",
+                    "domain:vk-portal.net",
+                    "domain:mvk.com",
+                    "domain:mycdn.me",
+                    "domain:mradx.net",
+                    "domain:tamtam.chat",
+                    "domain:okolo.app",
+                    "domain:perekrestok.com",
+                    "domain:5post.market",
+                    "domain:chizhik.club",
+                    "domain:x5.com",
+                    "domain:x5.tech",
+                    "domain:x5.group",
+                    "domain:x5.digital",
+                    "domain:x5.media",
+                    "domain:x5.team",
+                    "domain:x5.ai",
+                    "domain:x5static.net",
+                    "domain:ozon.com",
+                    "domain:ozon.by",
+                    "domain:ozon.kz",
+                    "domain:ozon.tm",
+                    "domain:ozonusercontent.com",
+                    "domain:ozonru.me",
+                    "domain:paywb.com",
+                    "domain:okko.tv",
+                    "domain:okko.sport",
+                    "domain:kinopoisk-ru.clstorage.net",
+                    "domain:yandex.com",
+                    "domain:yandex.net",
+                    "domain:yandex.by",
+                    "domain:yandex.kz",
+                    "domain:yandex.uz",
+                    "domain:yandex.com.tr",
+                    "domain:yandex.cloud",
+                    "domain:yandexcloud.net",
+                    "domain:yandexcom.net",
+                    "domain:yandexmetrica.com",
+                    "domain:yandexadexchange.net",
+                    "domain:yandexwebcache.org",
+                    "domain:yastatic.net",
+                    "domain:yastat.net",
+                    "domain:naydex.net",
+                    "domain:turbopages.org",
+                    "domain:webvisor.com",
+                    "domain:webvisor.org",
+                    "domain:yads.tech",
+                    "domain:yandex-bank.net",
+                    "domain:rostaxi.org",
+                    "domain:avs.io",
+                    "domain:aviasales.com",
+                    "domain:2gis.com",
+                    "domain:2gis.ae",
+                    "domain:2gis.az",
+                    "domain:2gis.by",
+                    "domain:2gis.kz",
+                    "domain:2gis.kg",
+                    "domain:2gis.uz",
+                    "domain:2gis.am",
+                    "domain:2gis.ge",
+                    "domain:2gis.cz",
+                    "domain:2gis.com.cy",
+                    "domain:sberbank.com",
+                    "domain:sber-bank.by",
+                    "domain:bps-sberbank.by",
+                    "domain:sber.pro",
+                    "domain:giga.chat",
+                    "domain:sbercloud.tech",
+                    "domain:megamarket.tech",
+                    "domain:lenta.tech",
+                    "domain:unirest.tech",
+                    "domain:tochka.com",
+                    "domain:tochka-tech.com",
+                    "domain:gazprombank.com",
+                    "domain:gazprombank.investments",
+                    "domain:tinkoff-group.com",
+                    "domain:tbank-online.com",
+                    "domain:cdn-tinkoff.ru",
+                    "domain:dodois.com",
+                    "domain:dodois.io",
+                    "domain:dodopizza.com",
+                    "domain:dodostatic.net",
+                    "domain:fix-price.com",
+                    "domain:lenta.com",
+                    "domain:metro-cc.ru",
+                    "domain:zvuk.com",
+                    "domain:zvuk-b2b.com",
+                    "domain:cloudru.cn",
+                    "domain:trbcdn.net",
+                    "domain:cdnvideohub.com",
+                    "domain:restream-media.net",
+                    "domain:boosty.to",
+                    "domain:donationalerts.com",
+                    "domain:memealerts.com",
+                    "domain:youla.io",
+                    "domain:dzeninfra.ru",
+                    "domain:emias.info",
+                    "domain:unidraw.io",
+                    "domain:2ip.ru",
+                    "domain:ip-api.com",
+                    "domain:ipify.org",
+                    "domain:ipapi.co",
+                    "domain:whoer.net",
+                    "domain:ifconfig.me",
+                    "domain:icanhazip.com",
+                    "domain:myip.com",
+                    "domain:iplocation.net",
+                    "domain:ipleak.net",
+                    "domain:seeip.org",
+                    "domain:ident.me",
+                    "domain:wtfismyip.com",
+                    "domain:check-host.net"
+                ],
+                "outboundTag": "direct",
+                "type": "field"
+            },
+            {
+                "ip": [
+                    "geoip:ru",
+                    "geoip:private"
+                ],
+                "outboundTag": "direct",
+                "type": "field"
+            },
+            {
+                "balancerTag": "US2Balancer",
+                "network": "tcp,udp",
+                "type": "field"
+            }
+        ]
+    }
+}
