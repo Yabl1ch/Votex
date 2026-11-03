@@ -1,3 +1,15 @@
+export type TabId =
+  | "dashboard"
+  | "provisioning"
+  | "reports"
+  | "subscription"
+  | "security"
+  | "settings";
+
+export type AppTheme = "obsidian" | "sage";
+
+export type ProvisioningStatus = "idle" | "testing" | "provisioning" | "success" | "error";
+
 export interface ProvisioningRequest {
   host: string;
   port: number;
@@ -66,4 +78,27 @@ export interface VaultRecord {
   subscription_token: string;
   subscription_url: string;
   updated_at: string;
+}
+
+export interface BannedIP {
+  ip: string;
+  timestamp: string;
+  reason: string;
+  country?: string;
+}
+
+export interface FirewallPort {
+  port: number;
+  proto: "tcp" | "udp";
+  service: string;
+  status: "ALLOW" | "DENY";
+  comment?: string;
+}
+
+export interface SmartRouteItem {
+  id: string;
+  title: string;
+  category: "ru_direct" | "vpn_tunnel" | "blocked";
+  description: string;
+  domains: string[];
 }
