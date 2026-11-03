@@ -1,0 +1,6 @@
+[build]
+target = "x86_64-pc-windows-gnullvm"
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    "-C", "link-arg=-Wl,--delayload=WebView2Loader.dll",
+]
