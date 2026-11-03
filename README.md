@@ -4,8 +4,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Phase 1: Completed](https://img.shields.io/badge/Phase%201-Completed%20%26%20Verified-22c55e.svg)](ROADMAP.md)
+[![Phase 2: Completed](https://img.shields.io/badge/Phase%202-Completed%20%26%20Verified-22c55e.svg)](ROADMAP.md)
 [![Platform: Linux VPS](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Debian-4ade80.svg)](scripts/votex-install.sh)
-[![Tests: Passing](https://img.shields.io/badge/Tests-16%2F16%20Passing-brightgreen.svg)](tests/)
+[![Tests: Passing](https://img.shields.io/badge/Tests-24%2F24%20Passing-brightgreen.svg)](tests/)
 
 ---
 
@@ -48,8 +49,8 @@
 | Фаза | Наименование | Статус | Артефакты / Результаты |
 |---|---|---|---|
 | **Фаза 1** | **Серверный монолит и инфраструктурный харднинг** | **Завершена (100%)** | `scripts/votex-install.sh`, `scripts/sub-service.py`, тесты `tests/` |
-| **Фаза 2** | Инициализация ядра Tauri v2 и нативного SSH-модуля (Rust) | Запланирована | Rust Core, потоковый SSH терминал, AES-GCM Vault |
-| **Фаза 3** | Фронтенд и дизайн-система `organic-glass-bento-ui` | Запланирована | Bento Grid, стеклянные компоненты, SVG-иконки |
+| **Фаза 2** | **Инициализация ядра Tauri v2 и нативного SSH-модуля (Rust)** | **Завершена (100%)** | `src-tauri/` (IPC, потоковый SSH, AES-GCM Vault), React 19 UI, тесты |
+| **Фаза 3** | Фронтенд и дизайн-система `organic-glass-bento-ui` | В процессе | Bento Grid, стеклянные компоненты, SVG-иконки |
 | **Фаза 4** | Реализация экранов, бизнес-логики и бенчмарков | Запланирована | Provisioning, Dashboard, Reports, Security |
 | **Фаза 5** | Релизная сборка `.exe`, публикация на GitHub и выпуск MVP | Запланирована | Релизный Windows бинарник, GitHub Release v1.0.0 |
 
@@ -103,25 +104,92 @@
 
 ---
 
+## Архитектура нативного ядра Tauri v2 и Rust Core
+
+Приложение Votex построено на базе гибридной архитектуры: легковесный веб-интерфейс на React 19 + TypeScript + Tailwind CSS v4 и высокопроизводительный системный бэкенд на Rust с фреймворком **Tauri v2**.
+
+### Архитектурная схема ядра
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                   VOTEX DESKTOP CLIENT (Tauri v2)                      │
+│                                                                        │
+│   React 19 Frontend (Vite + Tailwind v4 + Lucide SVG + Framer Motion) │
+│                               ▲                                        │
+│          Tauri IPC Invocation │ │ Tauri Events ("ssh-log")             │
+│                               ▼                                        │
+│   Rust Core (Tokio Async Runtime):                                     │
+│   ├── SSH Streaming Engine (russh / tokio):                            │
+│   │   ├── Прямое подключение к порту 22 целевого VPS                  │
+│   │   ├── Потоковая трансляция stdout / stderr в окно приложения       │
+│   │   └── Парсинг маркеров VOTEX_JSON_REPORT_START ... _END            │
+│   ├── Local Encrypted Vault (aes-gcm / sha2):                          │
+│   │   ├── Шифрование AES-256-GCM с 12-байтным Nonce                   │
+│   │   └── Ключ на базе аппаратных идентификаторов машины              │
+│   └── Network Health & Benchmark:                                      │
+│       ├── test_connection(host, port): быстрый TCP пинг               │
+│       └── fetch_server_metrics(host): опрос доступности портов         │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Защищенная SSH сессия (Порт 22)
+                                    ▼
+                     Чистый сервер VPS (Ubuntu / Debian)
+```
+
+### Контракты IPC-команд Rust
+
+| Команда Tauri IPC | Входные аргументы | Возвращаемое значение | Назначение |
+|---|---|---|---|
+| `run_provisioning` | `host`, `port`, `username`, `password` | `Result<VotexReport, String>` | Асинхронное подключение по SSH, выполнение `votex-install.sh`, потоковая трансляция логов через событие `ssh-log`, парсинг и сохранение отчета в Vault |
+| `test_connection` | `host`, `port` | `Result<ConnectionTestResult, String>` | Быстрый асинхронный TCP-пинг порта 22 с замером задержки рукопожатия до старта настройки |
+| `fetch_server_metrics`| `host` | `Result<ServerMetrics, String>` | Опрос доступности портов SSH (22), подписки (18080) и Reality (20443) |
+| `get_saved_vps` | — | `Result<Option<VaultRecord>, String>` | Извлечение расшифрованных учетных данных последней успешной конфигурации из Vault |
+| `save_saved_vps` | `record: VaultRecord` | `Result<Option<()>, String>` | Принудительное зашифрованное сохранение рекорда в локальный Vault |
+| `clear_saved_vps` | — | `Result<(), String>` | Безопасное удаление сохраненных данных VPS с локального диска |
+| `run_quick_ping` | `host`, `port?` | `Result<u64, String>` | Измерение текущей сетевой задержки до указанного порта в миллисекундах |
+
+### Защищенное локальное хранилище (Encrypted Vault)
+
+Модуль `src-tauri/src/vault.rs` реализует шифрование данных VPS (IP, порт, токен подписки, URL) по стандарту **AES-256-GCM**:
+- Ключ шифрования (32 байта) детерминированно вычисляется через SHA-256 на основе аппаратных данных текущего компьютера пользователя (`COMPUTERNAME`, `USERNAME`, `PROCESSOR_IDENTIFIER` и локальная соль).
+- Для каждого сохранения генерируется криптографически стойкий случайный 12-байтный одноразовый вектор (Nonce) через `rand::thread_rng()`.
+- Данные защищены от подделки и повреждения 16-байтным тегом аутентификации Poly1305 (любая модификация битов приводит к безопасной ошибке `DecryptionFailed`).
+
+---
+
 ## Тестирование и верификация (Quality Assurance)
 
-В репозитории реализован автоматический тестовый набор на Python 3 (`tests/`):
+Проект следует принципу непрерывной самопроверки (Self-Verification). В репозитории реализовано три независимых контура тестирования:
 
-- `tests/test_votex_install_syntax.py`:
-  - Проверка синтаксиса bash-скрипта через `bash -n scripts/votex-install.sh`.
-  - Валидация наличия всех директив харднинга (sysctl, fail2ban, ufw, systemd).
-  - Проверка отсутствия неразрешенных Unicode-эмодзи (соответствие регламенту).
-- `tests/test_subscription_service.py`:
-  - Тестирование генерации Base64-подписки и парсинг всех 5 протокольных ссылок.
-  - Тестирование генерации JSON-профиля со Smart Routing, DNS, Burst Observatory и фрагментацией TLS.
-  - Тестирование встроенного HTTP-сервера (проверка ответов 404 на некорректные токены и 200 на валидные запросы).
-- `tests/test_benchmark_report.py`:
-  - Валидация схемы структурированного JSON-отчета `/var/log/votex-report.json`.
+### 1. Нативное тестирование Rust Core (`src-tauri`):
+```powershell
+cd src-tauri
+cargo test
+```
+- `test_extract_json_report_success`: парсинг структурированного отчета между маркерами `VOTEX_JSON_REPORT_START` и `VOTEX_JSON_REPORT_END`.
+- `test_extract_json_report_missing_start_marker`: обработка отсутствия начального маркера.
+- `test_extract_json_report_missing_end_marker`: обработка отсутствия завершающего маркера.
+- `test_vault_encrypt_decrypt_roundtrip`: сквозная проверка шифрования и расшифрования рекорда AES-256-GCM.
+- `test_vault_tampered_data_fails`: проверка отторжения модифицированных или поврежденных зашифрованных данных.
+- `test_vault_empty_when_file_not_found`: безопасный fallback при отсутствии файла хранилища.
+- `test_connection_empty_host`: валидация граничных условий при пустом адресе хоста.
+- `test_connection_invalid_host`: корректное возвращение ошибки при недоступном порте.
 
-Запуск тестов:
+### 2. Сборка и проверка типов фронтенда (React 19 + TypeScript):
+```powershell
+pnpm build
+```
+- Компиляция TypeScript (`tsc --noEmit`) с флагом `strict: true`.
+- Сборка бандла Vite + Tailwind CSS v4 без предупреждений и ошибок типов.
+
+### 3. Серверные тесты на Python 3 (`tests/`):
 ```powershell
 python tests/run_tests.py
 ```
+- `tests/test_votex_install_syntax.py`: синтаксис bash (`bash -n`), проверка директив харднинга и запрета эмодзи.
+- `tests/test_subscription_service.py`: генерация Base64/JSON профилей и работа HTTP-сервера подписки.
+- `tests/test_benchmark_report.py`: валидация схемы JSON-отчета `/var/log/votex-report.json`.
+
+Все тесты (24/24) выполняются автоматически и завершаются с кодом 0.
 
 ---
 

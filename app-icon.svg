@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#143A2B" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#06100C" stop-opacity="1"/>
+    </radialGradient>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4ADE80"/>
+      <stop offset="100%" stop-color="#15803D"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#86EFAC"/>
+      <stop offset="100%" stop-color="#4ADE80"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background rounded rect -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGlow)" stroke="#22C55E" stroke-opacity="0.3" stroke-width="4"/>
+
+  <!-- Glowing outer ring -->
+  <circle cx="256" cy="256" r="180" fill="none" stroke="#4ADE80" stroke-opacity="0.15" stroke-width="2" stroke-dasharray="8 8"/>
+
+  <!-- Shield Base -->
+  <path d="M256 96 C336 96 384 136 384 216 C384 320 296 388 256 416 C216 388 128 320 128 216 C128 136 176 96 256 96 Z"
+        fill="url(#shieldGrad)"
+        fill-opacity="0.18"
+        stroke="url(#shieldGrad)"
+        stroke-width="14"
+        stroke-linejoin="round"
+        filter="url(#glow)"/>
+
+  <!-- Inner V monogram symbol -->
+  <path d="M192 192 L256 320 L320 192"
+        fill="none"
+        stroke="url(#accentGrad)"
+        stroke-width="22"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+
+  <!-- Center pulse dot -->
+  <circle cx="256" cy="356" r="10" fill="#4ADE80"/>
+</svg>

@@ -100,9 +100,9 @@
    - `fetch_server_metrics(host)`: опрос статуса служб Xray, Hysteria 2 и Fail2ban.
 
 ### Обязательные действия агента в конце Фазы 2:
-- [ ] Выполнить `cargo check` в директории `src-tauri` (убедиться в отсутствии ошибок).
-- [ ] Обновить `README.md`: добавить раздел о нативном Rust-бэкенде и IPC-контрактах.
-- [ ] Выполнить `git commit` и `git push origin main`.
+- [x] Выполнить `cargo check` и `cargo test` в директории `src-tauri` (убедиться в отсутствии ошибок).
+- [x] Обновить `README.md`: добавить раздел о нативном Rust-бэкенде и IPC-контрактах.
+- [x] Выполнить `git commit` и `git push origin main`.
 
 ---
 
