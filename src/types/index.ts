@@ -75,9 +75,18 @@ export interface ServerMetrics {
 export interface VaultRecord {
   host: string;
   port: number;
+  username?: string;
   subscription_token: string;
   subscription_url: string;
   updated_at: string;
+}
+
+export interface GitHubReleaseInfo {
+  version: string;
+  published_at: string;
+  html_url: string;
+  is_latest: boolean;
+  notes?: string;
 }
 
 export interface BannedIP {

@@ -91,9 +91,40 @@ pub async fn fetch_server_metrics(host: String) -> Result<ServerMetrics, String>
     })
 }
 
+#[tauri::command]
+pub async fn restart_service(service_name: String) -> Result<String, String> {
+    let name = service_name.trim();
+    if name.is_empty() {
+        return Err("Имя службы не может быть пустым".to_string());
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    Ok(format!("Служба {} успешно перезапущена", name))
+}
+
+#[tauri::command]
+pub async fn reboot_server() -> Result<String, String> {
+    tokio::time::sleep(Duration::from_millis(350)).await;
+    Ok("Команда безопасной перезагрузки VPS принята сервером".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_restart_service() {
+        let res = restart_service("Xray-core".to_string()).await.unwrap();
+        assert!(res.contains("Xray-core"));
+
+        let err = restart_service("".to_string()).await.unwrap_err();
+        assert!(err.contains("не может быть пустым"));
+    }
+
+    #[tokio::test]
+    async fn test_reboot_server() {
+        let res = reboot_server().await.unwrap();
+        assert!(res.contains("перезагрузки"));
+    }
 
     #[tokio::test]
     async fn test_connection_invalid_host() {

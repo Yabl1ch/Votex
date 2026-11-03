@@ -4,7 +4,6 @@ import {
   Globe,
   Copy,
   Check,
-  Shield,
   ShieldCheck,
   Activity,
   Layers,
@@ -15,35 +14,59 @@ import {
   RefreshCw,
   Clock,
   Cpu,
+  ArrowRight,
+  Shield,
+  Zap,
 } from "lucide-react";
 import { BentoGrid, BentoCard, GlassButton, StatusBadge } from "../components/bento";
 import { useAppStore } from "../store";
 
 export const DashboardPage: React.FC = () => {
-  const { report, isConnected, latency, setActiveTab } = useAppStore();
+  const {
+    report,
+    isConnected,
+    latency,
+    pingHistory,
+    quickPing,
+    setActiveTab,
+    vpsConfig,
+  } = useAppStore();
+
   const [copied, setCopied] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isPinging, setIsPinging] = useState(false);
 
   const subUrl =
     report?.subscription_url ||
-    "https://89.125.126.90:18080/sub/9f8a3c2e1b4d5e6f7a8b9c0d1e2f3a4b";
+    `https://${vpsConfig.host || "89.125.126.90"}:18080/sub/9f8a3c2e1b4d5e6f7a8b9c0d1e2f3a4b`;
+
+  const serverIp = report?.server_ip || vpsConfig.host || "89.125.126.90";
 
   const handleCopyLink = async () => {
     try {
       await navigator.clipboard.writeText(subUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fallback
+    } catch (err) {
+      console.warn("Failed to copy link to clipboard:", err);
     }
   };
 
-  const handleRefresh = () => {
-    setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
-    }, 600);
+  const handleQuickPing = async () => {
+    setIsPinging(true);
+    try {
+      await quickPing(serverIp, 22);
+    } finally {
+      setIsPinging(false);
+    }
   };
+
+  // Protocols dynamic latency from report if present
+  const protoBench = report?.benchmark?.protocols;
+  const visionLatency = protoBench?.vision?.latency_ms ?? 34;
+  const xhttpLatency = protoBench?.xhttp?.latency_ms ?? 52;
+  const grpcLatency = protoBench?.grpc?.latency_ms ?? 38;
+  const hysteriaLatency = protoBench?.hysteria2?.latency_ms ?? 28;
+  const ssLatency = protoBench?.shadowsocks?.latency_ms ?? 36;
 
   return (
     <div className="space-y-5 animate-fadeIn">
@@ -62,9 +85,10 @@ export const DashboardPage: React.FC = () => {
           <GlassButton
             variant="secondary"
             size="sm"
-            onClick={handleRefresh}
-            loading={isRefreshing}
-            icon={<RefreshCw className="w-3.5 h-3.5 text-[#4ADE80]" />}
+            onClick={handleQuickPing}
+            loading={isPinging}
+            icon={<RefreshCw className={`w-3.5 h-3.5 text-[#4ADE80] ${isPinging ? "animate-spin" : ""}`} />}
+            className="whitespace-nowrap"
           >
             Обновить статус
           </GlassButton>
@@ -92,7 +116,7 @@ export const DashboardPage: React.FC = () => {
                 <Globe className="w-3 h-3 text-[#4ADE80]" /> IP Адрес
               </span>
               <span className="text-xs sm:text-sm font-mono font-bold text-[#ECFDF5] truncate block">
-                {report?.server_ip || "89.125.126.90"}
+                {serverIp}
               </span>
               <span className="text-[10px] text-[#6EE7B7] truncate block mt-0.5">
                 Амстердам, NL
@@ -136,7 +160,28 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-[rgba(74,222,128,0.1)] flex items-center justify-between text-xs text-[#A7F3D0]/80">
+          {/* Mini Sparkline / History of Pings */}
+          <div className="mt-3 p-3 rounded-xl bg-[rgba(8,20,15,0.55)] border border-[rgba(74,222,128,0.12)] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Activity className="w-3.5 h-3.5 text-[#4ADE80]" />
+              <span className="text-xs text-[#A7F3D0]/80">Стабильность пинга (последние запросы):</span>
+            </div>
+            <div className="flex items-end gap-1.5 h-6">
+              {pingHistory.map((val, idx) => {
+                const heightPct = Math.min(100, Math.max(25, (val / 50) * 100));
+                return (
+                  <div
+                    key={idx}
+                    title={`${val} мс`}
+                    style={{ height: `${heightPct}%` }}
+                    className="w-1.5 rounded-full bg-gradient-to-t from-[#22C55E] to-[#4ADE80] opacity-80 hover:opacity-100 transition-all cursor-default"
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="mt-3 pt-3 border-t border-[rgba(74,222,128,0.1)] flex items-center justify-between text-xs text-[#A7F3D0]/80">
             <span className="flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-[#4ADE80]" />
               Защита ядра Linux: TCP BBR + Fail2ban + UFW Firewall активны
@@ -144,9 +189,10 @@ export const DashboardPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveTab("security")}
-              className="text-[#4ADE80] hover:underline font-medium cursor-pointer"
+              className="text-[#4ADE80] hover:underline font-medium cursor-pointer flex items-center gap-1 whitespace-nowrap"
             >
-              Подробнее о защите
+              <span>Подробнее о защите</span>
+              <ArrowRight className="w-3 h-3" />
             </button>
           </div>
         </BentoCard>
@@ -186,6 +232,20 @@ export const DashboardPage: React.FC = () => {
                 {copied ? "Ссылка скопирована в буфер!" : "Копировать ссылку для Happ"}
               </GlassButton>
             </div>
+
+            <div className="flex items-center justify-between pt-1 text-[11px] text-[#A7F3D0]/70">
+              <span className="flex items-center gap-1">
+                <Zap className="w-3 h-3 text-[#4ADE80]" />
+                Auto-Select узел включен
+              </span>
+              <button
+                type="button"
+                onClick={() => setActiveTab("subscription")}
+                className="text-[#4ADE80] hover:underline cursor-pointer"
+              >
+                QR-код и правила
+              </button>
+            </div>
           </div>
         </BentoCard>
 
@@ -218,8 +278,8 @@ export const DashboardPage: React.FC = () => {
               <h4 className="text-xs font-bold text-[#ECFDF5]">VLESS Reality</h4>
               <p className="text-[11px] text-[#A7F3D0]/70 mt-0.5">Vision TLS-маскировка</p>
               <div className="mt-3 pt-2 border-t border-[rgba(74,222,128,0.1)] flex items-center justify-between text-[11px] font-mono">
-                <span className="text-[#6EE7B7]">SNI: yahoo.com</span>
-                <span className="text-[#4ADE80] font-bold">~34 мс</span>
+                <span className="text-[#6EE7B7]">addons.mozilla.org</span>
+                <span className="text-[#4ADE80] font-bold">~{visionLatency} мс</span>
               </div>
             </div>
 
@@ -235,7 +295,7 @@ export const DashboardPage: React.FC = () => {
               <p className="text-[11px] text-[#A7F3D0]/70 mt-0.5">Обход белых списков</p>
               <div className="mt-3 pt-2 border-t border-[rgba(74,222,128,0.1)] flex items-center justify-between text-[11px] font-mono">
                 <span className="text-[#6EE7B7]">MIME Stream</span>
-                <span className="text-[#4ADE80] font-bold">~52 мс</span>
+                <span className="text-[#4ADE80] font-bold">~{xhttpLatency} мс</span>
               </div>
             </div>
 
@@ -251,7 +311,7 @@ export const DashboardPage: React.FC = () => {
               <p className="text-[11px] text-[#A7F3D0]/70 mt-0.5">Мультиплексный туннель</p>
               <div className="mt-3 pt-2 border-t border-[rgba(74,222,128,0.1)] flex items-center justify-between text-[11px] font-mono">
                 <span className="text-[#6EE7B7]">gun multiplex</span>
-                <span className="text-[#4ADE80] font-bold">~38 мс</span>
+                <span className="text-[#4ADE80] font-bold">~{grpcLatency} мс</span>
               </div>
             </div>
 
@@ -266,8 +326,8 @@ export const DashboardPage: React.FC = () => {
               <h4 className="text-xs font-bold text-[#ECFDF5]">Hysteria 2 (QUIC)</h4>
               <p className="text-[11px] text-[#A7F3D0]/70 mt-0.5">Низкий пинг для игр</p>
               <div className="mt-3 pt-2 border-t border-[rgba(74,222,128,0.1)] flex items-center justify-between text-[11px] font-mono">
-                <span className="text-[#6EE7B7]">Brutal Congestion</span>
-                <span className="text-[#4ADE80] font-bold">~28 мс</span>
+                <span className="text-[#6EE7B7]">Salamander / Brutal</span>
+                <span className="text-[#4ADE80] font-bold">~{hysteriaLatency} мс</span>
               </div>
             </div>
 
@@ -283,7 +343,7 @@ export const DashboardPage: React.FC = () => {
               <p className="text-[11px] text-[#A7F3D0]/70 mt-0.5">2022-blake3-aes-128</p>
               <div className="mt-3 pt-2 border-t border-[rgba(74,222,128,0.1)] flex items-center justify-between text-[11px] font-mono">
                 <span className="text-[#6EE7B7]">Резервный шифр</span>
-                <span className="text-[#4ADE80] font-bold">~36 мс</span>
+                <span className="text-[#4ADE80] font-bold">~{ssLatency} мс</span>
               </div>
             </div>
           </div>

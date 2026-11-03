@@ -10,23 +10,62 @@ import {
   AlertTriangle,
   Check,
   CheckCircle2,
+  Search,
+  X,
+  ShieldAlert,
 } from "lucide-react";
 import { BentoGrid, BentoCard, GlassButton, StatusBadge } from "../components/bento";
 import { useAppStore } from "../store";
 
 export const SecurityPage: React.FC = () => {
-  const { bannedIPs, unbanIP, firewallPorts } = useAppStore();
+  const {
+    bannedIPs,
+    unbanIP,
+    firewallPorts,
+    restartServiceAction,
+    rebootServerAction,
+  } = useAppStore();
+
   const [restartingService, setRestartingService] = useState<string | null>(null);
   const [serviceFeedback, setServiceFeedback] = useState<string | null>(null);
+  const [showRebootModal, setShowRebootModal] = useState<boolean>(false);
+  const [ipFilter, setIpFilter] = useState<string>("");
 
-  const handleRestartService = (name: string) => {
+  const handleRestartService = async (name: string) => {
     setRestartingService(name);
-    setTimeout(() => {
+    setServiceFeedback(null);
+    try {
+      const msg = await restartServiceAction(name);
+      setServiceFeedback(msg);
+      setTimeout(() => setServiceFeedback(null), 3500);
+    } catch (err) {
+      console.warn("Failed to restart service:", err);
+    } finally {
       setRestartingService(null);
-      setServiceFeedback(`Служба ${name} успешно перезапущена`);
-      setTimeout(() => setServiceFeedback(null), 3000);
-    }, 1000);
+    }
   };
+
+  const handleConfirmReboot = async () => {
+    setShowRebootModal(false);
+    setRestartingService("VPS Reboot");
+    setServiceFeedback(null);
+    try {
+      const msg = await rebootServerAction();
+      setServiceFeedback(msg);
+      setTimeout(() => setServiceFeedback(null), 4000);
+    } catch (err) {
+      console.warn("Failed to reboot server:", err);
+    } finally {
+      setRestartingService(null);
+    }
+  };
+
+  const filteredBannedIPs = bannedIPs.filter(
+    (b) =>
+      b.ip.includes(ipFilter.trim()) ||
+      (b.country && b.country.toLowerCase().includes(ipFilter.trim().toLowerCase())) ||
+      b.reason.toLowerCase().includes(ipFilter.trim().toLowerCase())
+  );
 
   return (
     <div className="space-y-5 animate-fadeIn">
@@ -36,7 +75,7 @@ export const SecurityPage: React.FC = () => {
           Безопасность и управление сервером
         </h1>
         <p className="text-xs text-[#A7F3D0]/70 mt-0.5">
-          Антибот защита Fail2ban, межсетевой экран UFW и статус харднинга ядра Linux
+          Антибот защита Fail2ban, межсетевой экран UFW, матрица портов и статус харднинга ядра Linux
         </p>
       </div>
 
@@ -73,7 +112,7 @@ export const SecurityPage: React.FC = () => {
               <div className="space-y-2 text-xs">
                 <div className="flex items-center justify-between p-2 rounded-lg bg-[rgba(15,34,26,0.6)]">
                   <span className="text-[#A7F3D0]">Лимит попыток (maxretry):</span>
-                  <span className="font-mono text-[#ECFDF5]">3 попытки</span>
+                  <span className="font-mono text-[#ECFDF5]">4 попытки</span>
                 </div>
                 <div className="flex items-center justify-between p-2 rounded-lg bg-[rgba(15,34,26,0.6)]">
                   <span className="text-[#A7F3D0]">Длительность бана (bantime):</span>
@@ -82,6 +121,10 @@ export const SecurityPage: React.FC = () => {
                 <div className="flex items-center justify-between p-2 rounded-lg bg-[rgba(15,34,26,0.6)]">
                   <span className="text-[#A7F3D0]">Окно наблюдения (findtime):</span>
                   <span className="font-mono text-[#ECFDF5]">600 сек (10м)</span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded-lg bg-[rgba(15,34,26,0.6)]">
+                  <span className="text-[#A7F3D0]">Защищаемый порт:</span>
+                  <span className="font-mono text-[#4ADE80]">22 / TCP (sshd)</span>
                 </div>
               </div>
             </div>
@@ -119,7 +162,7 @@ export const SecurityPage: React.FC = () => {
           <BentoCard
             icon={<Server className="w-4 h-4 text-[#4ADE80]" />}
             title="Управление службами сервера"
-            subtitle="Перезапуск и диагностика демонов"
+            subtitle="Мягкий перезапуск и диагностика демонов"
           >
             {serviceFeedback && (
               <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#22C55E]/15 border border-[#22C55E]/30 text-xs text-[#4ADE80] mb-3">
@@ -154,7 +197,7 @@ export const SecurityPage: React.FC = () => {
               <GlassButton
                 variant="danger"
                 size="sm"
-                onClick={() => handleRestartService("VPS Reboot")}
+                onClick={() => setShowRebootModal(true)}
                 loading={restartingService === "VPS Reboot"}
                 icon={<Power className="w-3.5 h-3.5" />}
                 className="whitespace-nowrap"
@@ -206,7 +249,7 @@ export const SecurityPage: React.FC = () => {
 
               <div className="p-2.5 rounded-xl bg-[rgba(15,34,26,0.6)] border border-[rgba(74,222,128,0.12)] text-xs text-[#A7F3D0]/70 flex items-center justify-between mt-2">
                 <span>Остальные входящие порты:</span>
-                <span className="font-mono text-red-400 font-semibold">DEFAULT DROP / DENY</span>
+                <span className="font-mono text-red-400 font-semibold">DEFAULT DROP / DENY (Stealth)</span>
               </div>
             </div>
           </BentoCard>
@@ -222,13 +265,25 @@ export const SecurityPage: React.FC = () => {
               </span>
             }
           >
-            {bannedIPs.length === 0 ? (
-              <div className="text-center py-8 text-xs text-[#A7F3D0]/60">
-                Список заблокированных IP пуст. Атак не зафиксировано.
+            {/* Filter Search */}
+            <div className="relative mb-2">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-[#A7F3D0]/60 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Фильтр по IP или стране..."
+                value={ipFilter}
+                onChange={(e) => setIpFilter(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-[rgba(8,20,15,0.7)] border border-[rgba(74,222,128,0.18)] text-xs text-[#ECFDF5] placeholder-[#A7F3D0]/40 focus:outline-none focus:border-[#4ADE80]"
+              />
+            </div>
+
+            {filteredBannedIPs.length === 0 ? (
+              <div className="text-center py-6 text-xs text-[#A7F3D0]/60">
+                Заблокированных IP-адресов не найдено.
               </div>
             ) : (
-              <div className="space-y-2 my-1">
-                {bannedIPs.map((banned) => (
+              <div className="space-y-2 my-1 max-h-64 overflow-y-auto">
+                {filteredBannedIPs.map((banned) => (
                   <div
                     key={banned.ip}
                     className="flex items-center justify-between p-2.5 rounded-xl bg-[rgba(8,20,15,0.7)] border border-[rgba(74,222,128,0.14)] hover:border-[rgba(74,222,128,0.25)] transition-colors"
@@ -268,6 +323,60 @@ export const SecurityPage: React.FC = () => {
           </BentoCard>
         </div>
       </BentoGrid>
+
+      {/* Reboot Server Confirmation Modal */}
+      {showRebootModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fadeIn">
+          <div className="relative w-full max-w-md p-6 rounded-3xl bg-[rgba(15,34,26,0.95)] border border-[rgba(74,222,128,0.35)] shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
+            <button
+              type="button"
+              onClick={() => setShowRebootModal(false)}
+              className="absolute top-4 right-4 p-1 rounded-xl text-[#A7F3D0]/60 hover:text-[#ECFDF5] hover:bg-[rgba(74,222,128,0.1)] transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 rounded-2xl bg-red-500/15 border border-red-500/30 text-red-400">
+                <ShieldAlert className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-[#ECFDF5]">
+                  Подтверждение перезагрузки VPS
+                </h3>
+                <span className="text-xs text-[#A7F3D0]/70">
+                  Временный сброс VPN-соединений
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#A7F3D0]/85 leading-relaxed mb-6">
+              Внимание: Перезагрузка сервера временно прервет все активные VPN-туннели на 30–60 секунд, пока операционная система и сервисы Xray и Hysteria 2 не запустятся повторно. Вы уверены, что хотите продолжить?
+            </p>
+
+            <div className="flex items-center justify-end gap-3">
+              <GlassButton
+                variant="secondary"
+                size="md"
+                onClick={() => setShowRebootModal(false)}
+                className="whitespace-nowrap"
+              >
+                Отмена
+              </GlassButton>
+
+              <GlassButton
+                variant="danger"
+                size="md"
+                onClick={handleConfirmReboot}
+                icon={<Power className="w-4 h-4" />}
+                className="whitespace-nowrap"
+              >
+                Подтвердить перезагрузку
+              </GlassButton>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

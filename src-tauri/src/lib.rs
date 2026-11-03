@@ -3,9 +3,9 @@ pub mod state;
 pub mod vault;
 
 use commands::benchmark::run_quick_ping;
-use commands::server_status::{fetch_server_metrics, test_connection};
+use commands::server_status::{fetch_server_metrics, reboot_server, restart_service, test_connection};
 use commands::ssh::run_provisioning;
-use commands::subscription::{clear_saved_vps, get_saved_vps, save_saved_vps};
+use commands::subscription::{clear_saved_vps, get_saved_vps, regenerate_subscription_token, save_saved_vps};
 use state::AppState;
 
 pub fn run() {
@@ -20,7 +20,10 @@ pub fn run() {
             get_saved_vps,
             save_saved_vps,
             clear_saved_vps,
-            run_quick_ping
+            run_quick_ping,
+            restart_service,
+            reboot_server,
+            regenerate_subscription_token
         ])
         .run(tauri::generate_context!())
         .expect("error while running votex application");

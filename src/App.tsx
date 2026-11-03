@@ -20,12 +20,18 @@ export const App: React.FC = () => {
     latency,
     appendLog,
     setProgress,
+    loadSavedVpsFromVault,
   } = useAppStore();
 
   // Set theme attribute on root element
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
+
+  // Load saved VPS from Vault on application mount
+  useEffect(() => {
+    loadSavedVpsFromVault();
+  }, [loadSavedVpsFromVault]);
 
   // Setup Tauri Event Listener for "ssh-log"
   useEffect(() => {
