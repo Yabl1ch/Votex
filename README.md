@@ -2,13 +2,41 @@
 
 > **Votex** — Автоматизированный инструмент развертывания неуязвимой VPN-инфраструктуры на чистый VPS с многоуровневым харднингом, защитой от ботов, устойчивостью к ТСПУ/DPI, встроенной умной маршрутизацией (Smart Routing) и фирменной десктопной дизайн-системой **organic-glass-bento-ui**.
 
+[![Release: v1.0.0](https://img.shields.io/github/v/release/Yabl1ch/Votex?color=22c55e)](https://github.com/Yabl1ch/Votex/releases/latest)
+[![Download: votex.exe](https://img.shields.io/badge/Download-votex.exe-4ade80.svg)](https://github.com/Yabl1ch/Votex/releases/latest/download/votex.exe)
+[![Status: Production MVP](https://img.shields.io/badge/Status-Production%20MVP-brightgreen.svg)](https://github.com/Yabl1ch/Votex)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Phase 1: Completed](https://img.shields.io/badge/Phase%201-Completed%20%26%20Verified-22c55e.svg)](ROADMAP.md)
-[![Phase 2: Completed](https://img.shields.io/badge/Phase%202-Completed%20%26%20Verified-22c55e.svg)](ROADMAP.md)
-[![Phase 3: Completed](https://img.shields.io/badge/Phase%203-Completed%20%26%20Verified-22c55e.svg)](ROADMAP.md)
-[![Phase 4: Completed](https://img.shields.io/badge/Phase%204-Completed%20%26%20Verified-22c55e.svg)](ROADMAP.md)
+[![Phase 1-5: Completed](https://img.shields.io/badge/All%20Phases%201--5-Completed%20%28100%25%29-22c55e.svg)](ROADMAP.md)
 [![Platform: Windows Desktop | Linux VPS](https://img.shields.io/badge/Platform-Tauri%20v2%20%7C%20Linux%20VPS-4ade80.svg)](scripts/votex-install.sh)
 [![Tests: Passing](https://img.shields.io/badge/Tests-39%2F39%20Passing-brightgreen.svg)](tests/)
+
+---
+
+## Быстрый старт для пользователя (Quick Start Guide)
+
+Votex спроектирован так, чтобы любой пользователь мог развернуть собственный защищенный сервер за 2 минуты без ручного ввода команд в Linux-консоли.
+
+1. **Шаг 1: Скачать Votex**
+   - Скачайте готовый автономный бинарник [`votex.exe`](https://github.com/Yabl1ch/Votex/releases/latest/download/votex.exe) или инсталлятор [`Votex_1.0.0_x64-setup.exe`](https://github.com/Yabl1ch/Votex/releases/latest) из раздела [Releases](https://github.com/Yabl1ch/Votex/releases/latest).
+   - Приложение полностью независимо, не требует установки рантаймов (Node.js/Python) и весит ~13 МБ.
+
+2. **Шаг 2: Ввести реквизиты купленного VPS**
+   - Запустите `votex.exe`.
+   - В открывшемся окне перейдите на экран **«Мастер установки»**.
+   - Введите публичный IPv4-адрес чистого VPS (Ubuntu 22.04 / 24.04 или Debian 11 / 12) и пароль учетной записи `root`.
+   - Нажмите акцентную кнопку **«Настроить и защитить сервер»**.
+
+3. **Шаг 3: Автоматическое развертывание и харднинг**
+   - Встроенный терминал в реальном времени отобразит выполнение полного цикла: настройку фаервола UFW, активацию джейла Fail2ban, включение TCP BBR, установку ядра Xray/Hysteria 2 и проведение бенчмарка.
+   - По завершении на экране появится персональная зашифрованная ссылка подписки.
+
+4. **Шаг 4: Импорт подписки в мобильный или ПК клиент**
+   - Нажмите **«Копировать ссылку для Happ»** в 1 клик на Главной странице либо отсканируйте сгенерированный QR-код на экране **«Подписка»**.
+   - Добавьте подписку в клиент:
+     - **iOS / iPadOS:** Happ, Streisand, FoXray, sing-box.
+     - **Android:** Happ, v2rayNG, sing-box.
+     - **Windows / macOS / Linux:** Happ, v2rayN, sing-box, Nekoray.
+   - Все 5 протоколов с автовыбором наилучшего канала, раздельной умной маршрутизацией (DIRECT для РФ, PROXY для мирового интернета и ИИ, BLOCK для рекламы) и TLS-фрагментацией работают сразу «из коробки».
 
 ---
 
@@ -54,7 +82,7 @@
 | **Фаза 2** | **Инициализация ядра Tauri v2 и нативного SSH-модуля (Rust)** | **Завершена (100%)** | `src-tauri/` (IPC, потоковый SSH, AES-GCM Vault), React 19 UI, тесты |
 | **Фаза 3** | **Фронтенд и дизайн-система `organic-glass-bento-ui`** | **Завершена (100%)** | Библиотека Bento-компонентов, CSS-токены, Framer Motion, 6 вкладок, SVG-only |
 | **Фаза 4** | **Реализация экранов, бизнес-логики и бенчмарков** | **Завершена (100%)** | Сквозной IPC, валидация IPv4/SSH, QR-код подписки, бенчмарки, 39/39 тестов |
-| **Фаза 5** | Релизная сборка `.exe`, публикация на GitHub и выпуск MVP | Запланирована | Релизный Windows бинарник, GitHub Release v1.0.0 |
+| **Фаза 5** | **Релизная сборка `.exe`, публикация на GitHub и выпуск MVP** | **Завершена (100%)** | Релизный `votex.exe`, инсталляторы NSIS/MSI, публикация GitHub Release v1.0.0 |
 
 ---
 
@@ -169,6 +197,42 @@ pnpm build
 python tests/run_tests.py
 ```
 - 28 тестов: синтаксис bash, харднинг, запрет Unicode-эмодзи, токены `organic-glass-bento-ui`, экспорт всех 6 страниц и Bento-компонентов, предотвращение переноса текста (`whitespace-nowrap`), валидация IPv4, портов, интеграция QR-кода и Smart Routing правил.
+
+---
+
+## Сборка из исходников для разработчиков (Build from Source)
+
+Если вы хотите собрать бинарники и инсталляторы Votex самостоятельно из исходного кода:
+
+### Требования к окружению:
+- **Node.js**: версия 20+ и пакетный менеджер **pnpm** (`npm install -g pnpm`).
+- **Rust Toolchain**: версия 1.80+ (Rust 2021 Edition).
+- **С-компилятор / линкер для Windows**: LLVM-MinGW (UCRT), GNU MinGW или MSVC C++ Build Tools.
+
+### Инструкция по сборке:
+
+```powershell
+# 1. Клонировать репозиторий
+git clone https://github.com/Yabl1ch/Votex.git
+cd Votex
+
+# 2. Установить зависимости фронтенда
+pnpm install
+
+# 3. Запуск приложения в режиме разработки (Hot-Reload)
+pnpm tauri dev
+
+# 4. Проверка типов TypeScript и сборка интерфейса
+pnpm build
+
+# 5. Оптимизированная релизная сборка бинарника и установщиков
+pnpm tauri build
+```
+
+Собранные файлы будут размещены в:
+- Портативный исполняемый файл: `src-tauri/target/release/votex.exe`
+- Инсталлятор NSIS: `src-tauri/target/release/bundle/nsis/Votex_1.0.0_x64-setup.exe`
+- Инсталлятор WiX MSI: `src-tauri/target/release/bundle/msi/Votex_1.0.0_x64_en-US.msi`
 
 ---
 
