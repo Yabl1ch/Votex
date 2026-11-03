@@ -2,7 +2,7 @@ pub mod commands;
 pub mod state;
 pub mod vault;
 
-use commands::benchmark::run_quick_ping;
+use commands::benchmark::{run_quick_ping, run_speed_test};
 use commands::server_status::{fetch_server_metrics, reboot_server, restart_service, test_connection};
 use commands::ssh::run_provisioning;
 use commands::subscription::{clear_saved_vps, get_saved_vps, regenerate_subscription_token, save_saved_vps};
@@ -79,6 +79,7 @@ pub fn run() {
             save_saved_vps,
             clear_saved_vps,
             run_quick_ping,
+            run_speed_test,
             restart_service,
             reboot_server,
             regenerate_subscription_token

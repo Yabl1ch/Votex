@@ -38,6 +38,7 @@ logs/
 *.log
 
 # OS & Editor artifacts
+release_pkg/
 .DS_Store
 Thumbs.db
 desktop.ini

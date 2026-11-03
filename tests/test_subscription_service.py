@@ -217,8 +217,9 @@ class TestSubscriptionHttpServer(unittest.TestCase):
         with urllib.request.urlopen(url) as resp:
             self.assertEqual(resp.status, 200)
             self.assertEqual(resp.headers.get("Content-Type"), "application/json; charset=utf-8")
+            self.assertEqual(resp.headers.get("Profile-Title"), "Votex Private Cloud | JSON")
             data = json.loads(resp.read().decode("utf-8"))
-            self.assertEqual(data["remarks"], "Votex | All-In-One SmartRouting")
+            self.assertEqual(data["remarks"], "Votex Private Cloud | JSON")
             self.assertIn("burstObservatory", data)
             self.assertIn("outbounds", data)
             self.assertIn("routing", data)
@@ -229,8 +230,9 @@ class TestSubscriptionHttpServer(unittest.TestCase):
         with urllib.request.urlopen(req) as resp:
             self.assertEqual(resp.status, 200)
             self.assertEqual(resp.headers.get("Content-Type"), "application/json; charset=utf-8")
+            self.assertEqual(resp.headers.get("Profile-Title"), "Votex Private Cloud | JSON")
             data = json.loads(resp.read().decode("utf-8"))
-            self.assertEqual(data["remarks"], "Votex | All-In-One SmartRouting")
+            self.assertEqual(data["remarks"], "Votex Private Cloud | JSON")
 
 
 if __name__ == "__main__":

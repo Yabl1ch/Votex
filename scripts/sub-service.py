@@ -194,7 +194,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
     ]
 
     profile: Dict[str, Any] = {
-        "remarks": "Votex | All-In-One SmartRouting",
+        "remarks": "Votex Private Cloud | JSON",
         "burstObservatory": {
             "pingConfig": {
                 "destination": "http://www.gstatic.com/generate_204",
@@ -506,62 +506,94 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
 
     server_config: Dict[str, Any] = {}
 
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        self.end_headers()
+
+    def do_HEAD(self) -> None:
+        self._handle_request(head_only=True)
+
     def do_GET(self) -> None:
-        cfg = self.server_config or load_server_config()
-        token = cfg.get("subscription_token", "")
+        self._handle_request(head_only=False)
 
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
-        query = urllib.parse.parse_qs(parsed.query)
+    def _handle_request(self, head_only: bool = False) -> None:
+        try:
+            cfg = self.server_config or load_server_config()
+            token = cfg.get("subscription_token", "")
 
-        # Validate secret token path
-        expected_path = f"/sub/{token}"
-        if path != expected_path:
-            self.send_response(404)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(b"Not Found")
-            return
+            parsed = urllib.parse.urlparse(self.path)
+            path = parsed.path
+            query = urllib.parse.parse_qs(parsed.query)
 
-        user_agent = self.headers.get("User-Agent", "").lower()
-        format_param = query.get("format", [""])[0].lower()
-        is_json = (
-            format_param == "json"
-            or "happ" in user_agent
-            or "sing-box" in user_agent
-            or "xray" in user_agent
-        )
+            # Validate secret token path (handling optional trailing slash)
+            expected_path = f"/sub/{token}"
+            if path.rstrip("/") != expected_path:
+                self.send_response(404)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                if not head_only:
+                    self.wfile.write(b"Not Found")
+                return
 
-        if is_json:
-            profile_data = build_json_profile(cfg)
-            response_bytes = json.dumps(profile_data, indent=2, ensure_ascii=False).encode("utf-8")
+            user_agent = self.headers.get("User-Agent", "").lower()
+            format_param = query.get("format", [""])[0].lower()
+            accept_header = self.headers.get("Accept", "").lower()
 
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Profile-Title", "Votex Private Cloud")
-            self.send_header("Profile-Update-Interval", "24")
-            self.send_header(
-                "Subscription-Userinfo",
-                "upload=0; download=0; total=1073741824000; expire=0",
+            # Serve JSON with Smart Routing profile for Happ, sing-box, xray or when requested
+            is_base64 = (
+                format_param in ("b64", "base64")
+                or "v2rayn" in user_agent
+                or (user_agent.startswith("mozilla") and "happ" not in user_agent and format_param != "json" and "application/json" not in accept_header)
             )
-            self.send_header("Content-Length", str(len(response_bytes)))
-            self.end_headers()
-            self.wfile.write(response_bytes)
-        else:
-            b64_content = build_base64_subscription(cfg)
-            response_bytes = b64_content.encode("utf-8")
 
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Profile-Title", "Votex Private Cloud")
-            self.send_header("Profile-Update-Interval", "24")
-            self.send_header(
-                "Subscription-Userinfo",
-                "upload=0; download=0; total=1073741824000; expire=0",
-            )
-            self.send_header("Content-Length", str(len(response_bytes)))
-            self.end_headers()
-            self.wfile.write(response_bytes)
+            if not is_base64:
+                profile_data = build_json_profile(cfg)
+                response_bytes = json.dumps(profile_data, indent=2, ensure_ascii=False).encode("utf-8")
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Profile-Title", "Votex Private Cloud | JSON")
+                self.send_header("Profile-Type", "xray")
+                self.send_header("Profile-Update-Interval", "24")
+                self.send_header(
+                    "Subscription-Userinfo",
+                    "upload=0; download=0; total=1073741824000; expire=0",
+                )
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(response_bytes)))
+                self.end_headers()
+                if not head_only:
+                    self.wfile.write(response_bytes)
+            else:
+                b64_content = build_base64_subscription(cfg)
+                response_bytes = b64_content.encode("utf-8")
+
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Profile-Title", "Votex Private Cloud")
+                self.send_header("Profile-Update-Interval", "24")
+                self.send_header(
+                    "Subscription-Userinfo",
+                    "upload=0; download=0; total=1073741824000; expire=0",
+                )
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(response_bytes)))
+                self.end_headers()
+                if not head_only:
+                    self.wfile.write(response_bytes)
+        except Exception as e:
+            try:
+                self.send_response(500)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.end_headers()
+                if not head_only:
+                    self.wfile.write(f"Internal Error: {e}".encode("utf-8"))
+            except Exception:
+                pass
 
     def log_message(self, format: str, *args: Any) -> None:
         """Suppress default stdout access logs for stealth."""

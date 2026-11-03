@@ -207,13 +207,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   uiScale: typeof window !== "undefined" ? Number(localStorage.getItem("votex_ui_scale")) || 100 : 100,
   setUiScale: (uiScale: number) => {
-    const clamped = Math.min(130, Math.max(80, uiScale));
-    if (typeof document !== "undefined") {
-      const ratio = (clamped / 100).toString();
+    const clamped = Math.min(135, Math.max(75, Math.round(uiScale)));
+    if (typeof window !== "undefined") {
       localStorage.setItem("votex_ui_scale", clamped.toString());
-      if (document.body) {
-        (document.body.style as any).zoom = ratio;
-      }
     }
     set({ uiScale: clamped });
   },

@@ -23,14 +23,6 @@ export const App: React.FC = () => {
     loadSavedVpsFromVault,
   } = useAppStore();
 
-  // Apply UI scale to body and root container
-  useEffect(() => {
-    const ratio = (uiScale / 100).toString();
-    if (document.body) {
-      (document.body.style as any).zoom = ratio;
-    }
-  }, [uiScale]);
-
   // Set theme attribute on root element
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -97,7 +89,15 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden votex-canvas-grid text-[#ECFDF5] select-none">
+    <div
+      id="votex-viewport-root"
+      className="flex overflow-hidden votex-canvas-grid text-[#ECFDF5] select-none"
+      style={{
+        width: `${10000 / uiScale}vw`,
+        height: `${10000 / uiScale}vh`,
+        zoom: uiScale / 100,
+      }}
+    >
       {/* Organic Glass Sidebar */}
       <Sidebar />
 

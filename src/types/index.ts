@@ -63,6 +63,13 @@ export interface ConnectionTestResult {
   error?: string;
 }
 
+export interface SpeedTestResult {
+  download_mbps: number;
+  upload_mbps: number;
+  ping_ms: number;
+  timestamp: string;
+}
+
 export interface ServerMetrics {
   host: string;
   is_reachable: boolean;

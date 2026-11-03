@@ -22,12 +22,14 @@ import {
 } from "../components/bento";
 import type { ProtocolLatencyItem } from "../components/bento/LatencyBar";
 import { useAppStore } from "../store";
+import type { SpeedTestResult } from "../types";
 
 export const ReportsPage: React.FC = () => {
   const { report, quickPing, isConnected } = useAppStore();
   const hasVps = Boolean(report && isConnected);
 
   const [testing, setTesting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [downloadSpeed, setDownloadSpeed] = useState(
     hasVps ? (report?.benchmark?.speed_mbps || 480) : 0
   );
@@ -85,23 +87,28 @@ export const ReportsPage: React.FC = () => {
   ];
 
   const handleRetestSpeed = async () => {
-    if (!hasVps) return;
     setTesting(true);
+    setErrorMsg(null);
     try {
-      const realPing = await quickPing();
-      setPing(realPing);
-    } catch {
-      // ignore
-    }
+      const { invoke } = await import("@tauri-apps/api/core");
+      const targetHost = report?.server_ip || "";
+      const res = await invoke<SpeedTestResult>("run_speed_test", {
+        host: targetHost ? targetHost : null,
+      });
 
-    setTimeout(() => {
-      // Simulate real-time CDN speed burst testing
-      const newDl = Math.floor(465 + Math.random() * 45);
-      const newUl = Math.floor(410 + Math.random() * 35);
-      setDownloadSpeed(newDl);
-      setUploadSpeed(newUl);
+      setDownloadSpeed(res.download_mbps);
+      setUploadSpeed(res.upload_mbps);
+      setPing(res.ping_ms);
+    } catch (err) {
+      console.warn("Speed test error:", err);
+      try {
+        const p = await quickPing();
+        setPing(p);
+      } catch {}
+      setErrorMsg("Не удалось связаться с сервером замера скорости");
+    } finally {
       setTesting(false);
-    }, 1200);
+    }
   };
 
   return (
@@ -123,15 +130,29 @@ export const ReportsPage: React.FC = () => {
             variant="primary"
             size="md"
             onClick={handleRetestSpeed}
-            disabled={!hasVps}
+            disabled={testing}
             loading={testing}
             icon={<RotateCw className="w-5 h-5" />}
             className="whitespace-nowrap"
           >
-            {hasVps ? "Повторить тест скорости" : "Требуется сервер"}
+            {testing ? "Измерение скорости..." : "Повторить тест скорости"}
           </GlassButton>
         </div>
       </div>
+
+      {errorMsg && (
+        <div className="w-full max-w-7xl mx-auto px-4 sm:px-5 md:px-6">
+          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs sm:text-sm text-amber-300 flex items-center justify-between">
+            <span>{errorMsg}</span>
+            <button
+              onClick={() => setErrorMsg(null)}
+              className="text-amber-300/70 hover:text-amber-200 text-xs underline ml-3"
+            >
+              Закрыть
+            </button>
+          </div>
+        </div>
+      )}
 
       <BentoGrid cols={12}>
         {/* Module 1: Full-Width Tunnel Speedometer Module (Col 12) */}

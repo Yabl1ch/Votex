@@ -155,6 +155,7 @@ ufw allow 2053/tcp comment 'Votex VLESS Reality SplitHTTP' > /dev/null 2>&1 || t
 ufw allow 8443/tcp comment 'Votex VLESS Reality gRPC' > /dev/null 2>&1 || true
 ufw allow 2083/udp comment 'Votex Hysteria 2' > /dev/null 2>&1 || true
 ufw allow 2088/tcp comment 'Votex Shadowsocks-2022' > /dev/null 2>&1 || true
+ufw allow 2088/udp comment 'Votex Shadowsocks-2022 UDP' > /dev/null 2>&1 || true
 ufw allow 18080/tcp comment 'Votex Subscription Microservice' > /dev/null 2>&1 || true
 ufw --force enable > /dev/null 2>&1 || true
 log_info "UFW фаервол активирован: открыты только необходимые VPN-порты"
@@ -208,7 +209,7 @@ EOF
 
 # 4.2. Install Hysteria 2
 mkdir -p /etc/hysteria
-bash <(curl -fsSL https://get.hy2.sh/) > /dev/null 2>&1 || {
+curl -fsSL https://get.hy2.sh/ | bash > /dev/null 2>&1 || {
     log_warn "Официальный скрипт Hysteria не сработал, скачиваем бинарник напрямую..."
     HYSTERIA_URL="https://github.com/apernet/hysteria/releases/latest/download/hysteria-linux-${HYSTERIA_ARCH}"
     wget -qO /usr/local/bin/hysteria "${HYSTERIA_URL}" || true
@@ -222,18 +223,41 @@ log_step "==> Шаг 5/6: Генерация ключей X25519, UUID и нас
 REALITY_PRIVATE_KEY=""
 REALITY_PUBLIC_KEY=""
 if [[ -x /usr/local/bin/xray ]]; then
-    XRAY_KEYS=$(/usr/local/bin/xray x25519 2>/dev/null || true)
-    REALITY_PRIVATE_KEY=$(echo "${XRAY_KEYS}" | awk '/Private key/ {print $3}' | tr -d '[:space:]')
-    REALITY_PUBLIC_KEY=$(echo "${XRAY_KEYS}" | awk '/Public key/ {print $3}' | tr -d '[:space:]')
+    XRAY_KEYS=$(/usr/local/bin/xray x25519 2>&1 || true)
+    REALITY_PRIVATE_KEY=$(echo "${XRAY_KEYS}" | grep -iE "Private[ _]?key" | awk -F: '{print $NF}' | tr -d '[:space:]')
+    REALITY_PUBLIC_KEY=$(echo "${XRAY_KEYS}" | grep -iE "Public[ _]?key" | awk -F: '{print $NF}' | tr -d '[:space:]')
 fi
 
-# Resilient fallback if Xray binary was unavailable or failed to execute
+# Resilient fallback: RFC 7748 Montgomery ladder mathematically valid Curve25519 keypair
 if [[ -z "${REALITY_PRIVATE_KEY}" || -z "${REALITY_PUBLIC_KEY}" ]]; then
     KEYS_PY=$(python3 -c "
+P = 2**255 - 19
+def inv(x): return pow(x, P - 2, P)
+def x25519(k, u=9):
+    k &= (1 << 255) - 8; k |= 1 << 254
+    x_1 = u; x_2, z_2 = 1, 0; x_3, z_3 = u, 1; swap = 0
+    for t in reversed(range(255)):
+        k_t = (k >> t) & 1; swap ^= k_t
+        if swap: x_2, x_3 = x_3, x_2; z_2, z_3 = z_3, z_2
+        swap = k_t
+        A = (x_2 + z_2) % P; AA = (A * A) % P
+        B = (x_2 - z_2) % P; BB = (B * B) % P
+        E = (AA - BB) % P
+        C = (x_3 + z_3) % P; D = (x_3 - z_3) % P
+        DA = (D * A) % P; CB = (C * B) % P
+        x_3 = pow(DA + CB, 2, P); z_3 = (x_1 * pow(DA - CB, 2, P)) % P
+        x_2 = (AA * BB) % P; z_2 = (E * (AA + 121665 * E)) % P
+    if swap: x_2, x_3 = x_3, x_2; z_2, z_3 = z_3, z_2
+    return (x_2 * inv(z_2)) % P
 import os, base64
-priv = os.urandom(32)
-pub = os.urandom(32)
-print(base64.urlsafe_b64encode(priv).decode().rstrip('='), base64.urlsafe_b64encode(pub).decode().rstrip('='))
+priv_bytes = bytearray(os.urandom(32))
+priv_bytes[0] &= 248; priv_bytes[31] &= 127; priv_bytes[31] |= 64
+k = int.from_bytes(priv_bytes, 'little')
+pub_int = x25519(k)
+pub_bytes = pub_int.to_bytes(32, 'little')
+priv_b64 = base64.urlsafe_b64encode(priv_bytes).decode().rstrip('=')
+pub_b64 = base64.urlsafe_b64encode(pub_bytes).decode().rstrip('=')
+print(priv_b64, pub_b64)
 ")
     REALITY_PRIVATE_KEY=$(echo "${KEYS_PY}" | awk '{print $1}')
     REALITY_PUBLIC_KEY=$(echo "${KEYS_PY}" | awk '{print $2}')
@@ -246,10 +270,8 @@ HY_PASSWORD=$(openssl rand -base64 16)
 SUBSCRIPTION_TOKEN=$(openssl rand -hex 16)
 
 # Generate self-signed TLS cert for Hysteria 2 under SNI addons.mozilla.org
-openssl req -x509 -nodes -newkey ec:<(openssl ecparam -name prime256v1) \
-    -keyout /etc/hysteria/server.key \
-    -out /etc/hysteria/server.crt \
-    -subj "/CN=addons.mozilla.org" -days 3650 > /dev/null 2>&1 || true
+openssl ecparam -name prime256v1 -genkey -noout -out /etc/hysteria/server.key > /dev/null 2>&1 || true
+openssl req -new -x509 -key /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=addons.mozilla.org" > /dev/null 2>&1 || true
 
 # 5.1. Generate Xray Server Configuration (/usr/local/etc/xray/config.json)
 cat << EOF > /usr/local/etc/xray/config.json
@@ -419,6 +441,21 @@ systemctl daemon-reload > /dev/null 2>&1
 systemctl enable --now xray > /dev/null 2>&1 || systemctl restart xray > /dev/null 2>&1 || true
 systemctl enable --now hysteria-server > /dev/null 2>&1 || systemctl restart hysteria-server > /dev/null 2>&1 || true
 
+sleep 2
+if systemctl is-active --quiet xray; then
+    log_info "Xray-core успешно запущен (порты 20443, 2053, 8443, 2088 активны)"
+else
+    log_warn "Xray не запустился. Диагностика службы:"
+    journalctl -u xray -n 12 --no-pager 2>&1 || true
+fi
+
+if systemctl is-active --quiet hysteria-server; then
+    log_info "Hysteria 2 сервер успешно запущен (UDP порт 2083 активен)"
+else
+    log_warn "Hysteria 2 не запустился. Диагностика службы:"
+    journalctl -u hysteria-server -n 12 --no-pager 2>&1 || true
+fi
+
 # 5.3. Subscription Microservice Configuration & Python Daemon
 mkdir -p /etc/votex
 
@@ -498,20 +535,20 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     links: List[str] = [
         (
             f"vless://{uuid}@{server_ip}:20443"
-            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
+            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=chrome"
             f"&type=tcp&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid={short_id}"
             f"#Votex-Reality-Vision"
         ),
         (
             f"vless://{uuid}@{server_ip}:2053"
-            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
+            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=chrome"
             f"&type=xhttp&sni=addons.mozilla.org&sid={short_id}"
             f"&path=%2Fassets%2Fbuild%2F_app%2Fimmutable%2Fchunks%2Fstream-one%2F"
             f"#Votex-SplitHTTP-AntiDPI"
         ),
         (
             f"vless://{uuid}@{server_ip}:8443"
-            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
+            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=chrome"
             f"&type=grpc&serviceName=yabl1ch-grpc&sni=addons.mozilla.org&sid={short_id}"
             f"#Votex-Reality-gRPC"
         ),
@@ -634,7 +671,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
     ]
 
     profile: Dict[str, Any] = {
-        "remarks": "Votex | All-In-One SmartRouting",
+        "remarks": "Votex Private Cloud | JSON",
         "burstObservatory": {
             "pingConfig": {
                 "destination": "http://www.gstatic.com/generate_204",
@@ -727,7 +764,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "network": "tcp",
                     "security": "reality",
                     "realitySettings": {
-                        "fingerprint": "firefox",
+                        "fingerprint": "chrome",
                         "publicKey": pub_key,
                         "serverName": "addons.mozilla.org",
                         "shortId": short_id,
@@ -762,7 +799,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "network": "xhttp",
                     "security": "reality",
                     "realitySettings": {
-                        "fingerprint": "firefox",
+                        "fingerprint": "chrome",
                         "publicKey": pub_key,
                         "serverName": "addons.mozilla.org",
                         "shortId": short_id,
@@ -813,7 +850,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "network": "grpc",
                     "security": "reality",
                     "realitySettings": {
-                        "fingerprint": "firefox",
+                        "fingerprint": "chrome",
                         "publicKey": pub_key,
                         "serverName": "addons.mozilla.org",
                         "shortId": short_id,
@@ -946,62 +983,94 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
 
     server_config: Dict[str, Any] = {}
 
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        self.end_headers()
+
+    def do_HEAD(self) -> None:
+        self._handle_request(head_only=True)
+
     def do_GET(self) -> None:
-        cfg = self.server_config or load_server_config()
-        token = cfg.get("subscription_token", "")
+        self._handle_request(head_only=False)
 
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
-        query = urllib.parse.parse_qs(parsed.query)
+    def _handle_request(self, head_only: bool = False) -> None:
+        try:
+            cfg = self.server_config or load_server_config()
+            token = cfg.get("subscription_token", "")
 
-        # Validate secret token path (handling optional trailing slash)
-        expected_path = f"/sub/{token}"
-        if path.rstrip("/") != expected_path:
-            self.send_response(404)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(b"Not Found")
-            return
+            parsed = urllib.parse.urlparse(self.path)
+            path = parsed.path
+            query = urllib.parse.parse_qs(parsed.query)
 
-        user_agent = self.headers.get("User-Agent", "").lower()
-        format_param = query.get("format", [""])[0].lower()
-        accept_header = self.headers.get("Accept", "").lower()
-        is_json = (
-            format_param == "json"
-            or "application/json" in accept_header
-            or "sing-box" in user_agent
-        )
+            # Validate secret token path (handling optional trailing slash)
+            expected_path = f"/sub/{token}"
+            if path.rstrip("/") != expected_path:
+                self.send_response(404)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                if not head_only:
+                    self.wfile.write(b"Not Found")
+                return
 
-        if is_json:
-            profile_data = build_json_profile(cfg)
-            response_bytes = json.dumps(profile_data, indent=2, ensure_ascii=False).encode("utf-8")
+            user_agent = self.headers.get("User-Agent", "").lower()
+            format_param = query.get("format", [""])[0].lower()
+            accept_header = self.headers.get("Accept", "").lower()
 
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Profile-Title", "Votex Private Cloud")
-            self.send_header("Profile-Update-Interval", "24")
-            self.send_header(
-                "Subscription-Userinfo",
-                "upload=0; download=0; total=1073741824000; expire=0",
+            # Serve JSON with Smart Routing profile for Happ, sing-box, xray or when requested
+            is_base64 = (
+                format_param in ("b64", "base64")
+                or "v2rayn" in user_agent
+                or (user_agent.startswith("mozilla") and "happ" not in user_agent and format_param != "json" and "application/json" not in accept_header)
             )
-            self.send_header("Content-Length", str(len(response_bytes)))
-            self.end_headers()
-            self.wfile.write(response_bytes)
-        else:
-            b64_content = build_base64_subscription(cfg)
-            response_bytes = b64_content.encode("utf-8")
 
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Profile-Title", "Votex Private Cloud")
-            self.send_header("Profile-Update-Interval", "24")
-            self.send_header(
-                "Subscription-Userinfo",
-                "upload=0; download=0; total=1073741824000; expire=0",
-            )
-            self.send_header("Content-Length", str(len(response_bytes)))
-            self.end_headers()
-            self.wfile.write(response_bytes)
+            if not is_base64:
+                profile_data = build_json_profile(cfg)
+                response_bytes = json.dumps(profile_data, indent=2, ensure_ascii=False).encode("utf-8")
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Profile-Title", "Votex Private Cloud | JSON")
+                self.send_header("Profile-Type", "xray")
+                self.send_header("Profile-Update-Interval", "24")
+                self.send_header(
+                    "Subscription-Userinfo",
+                    "upload=0; download=0; total=1073741824000; expire=0",
+                )
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(response_bytes)))
+                self.end_headers()
+                if not head_only:
+                    self.wfile.write(response_bytes)
+            else:
+                b64_content = build_base64_subscription(cfg)
+                response_bytes = b64_content.encode("utf-8")
+
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Profile-Title", "Votex Private Cloud")
+                self.send_header("Profile-Update-Interval", "24")
+                self.send_header(
+                    "Subscription-Userinfo",
+                    "upload=0; download=0; total=1073741824000; expire=0",
+                )
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(response_bytes)))
+                self.end_headers()
+                if not head_only:
+                    self.wfile.write(response_bytes)
+        except Exception as e:
+            try:
+                self.send_response(500)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.end_headers()
+                if not head_only:
+                    self.wfile.write(f"Internal Error: {e}".encode("utf-8"))
+            except Exception:
+                pass
 
     def log_message(self, format: str, *args: Any) -> None:
         """Suppress default stdout access logs for stealth."""
@@ -1054,6 +1123,14 @@ EOF
 systemctl daemon-reload > /dev/null 2>&1
 systemctl enable --now votex-subscription > /dev/null 2>&1
 systemctl restart votex-subscription > /dev/null 2>&1 || true
+
+sleep 1
+if systemctl is-active --quiet votex-subscription; then
+    log_info "Микросервис подписки успешно запущен на порту 18080"
+else
+    log_warn "Микросервис подписки не запустился. Вывод ошибки:"
+    journalctl -u votex-subscription -n 12 --no-pager 2>&1 || true
+fi
 
 # 6. Network Latency & Bandwidth Benchmark
 log_step "==> Шаг 6/6: Запуск бенчмарка задержки и пропускной способности..."

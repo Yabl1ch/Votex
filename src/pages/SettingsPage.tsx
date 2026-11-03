@@ -243,62 +243,96 @@ export const SettingsPage: React.FC = () => {
               Настройте комфортный размер элементов интерфейса под разрешение вашего монитора. Тема оформления зафиксирована в фирменном стиле Obsidian Deep Forest по умолчанию.
             </p>
 
-            {/* Scale Presets Grid */}
-            <div className="grid grid-cols-4 gap-2.5">
-              {[85, 90, 100, 115].map((preset) => (
+            {/* Continuous Smooth Range Slider */}
+            <div className="space-y-2 p-3.5 rounded-xl bg-[rgba(8,20,15,0.75)] border border-[rgba(74,222,128,0.16)]">
+              <div className="flex items-center justify-between text-xs text-[#A7F3D0]/80">
+                <span className="font-medium">Плавная шкала:</span>
+                <span className="font-mono font-bold text-[#4ADE80] text-sm">{uiScale}%</span>
+              </div>
+              <input
+                type="range"
+                min="75"
+                max="135"
+                step="1"
+                value={uiScale}
+                onChange={(e) => setUiScale(Number(e.target.value))}
+                className="w-full h-2 bg-[#0F221A] rounded-lg appearance-none cursor-pointer accent-[#4ADE80] focus:outline-none"
+              />
+              <div className="flex justify-between text-[11px] text-[#A7F3D0]/50 font-mono">
+                <span>75% (Компактный)</span>
+                <span>100%</span>
+                <span>135% (Крупный)</span>
+              </div>
+            </div>
+
+            {/* Quick Scale Presets Grid */}
+            <div className="grid grid-cols-6 gap-2">
+              {[80, 85, 90, 100, 115, 125].map((preset) => (
                 <button
                   key={preset}
                   type="button"
                   onClick={() => setUiScale(preset)}
-                  className={`py-2.5 px-3 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
+                  className={`py-2 px-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-center ${
                     uiScale === preset
                       ? "bg-[#22C55E]/25 text-[#4ADE80] border border-[#22C55E]/50 shadow-[0_0_12px_rgba(74,222,128,0.25)]"
                       : "bg-[rgba(8,20,15,0.7)] text-[#A7F3D0]/70 border border-[rgba(74,222,128,0.14)] hover:border-[rgba(74,222,128,0.3)]"
                   }`}
                 >
-                  {preset}% {preset === 100 && "(Стандарт)"}
+                  {preset}%
                 </button>
               ))}
             </div>
 
-            {/* Fine Step Adjusters */}
+            {/* Precise Step Adjusters & Custom Input */}
             <div className="flex items-center justify-between p-3.5 rounded-xl bg-[rgba(8,20,15,0.75)] border border-[rgba(74,222,128,0.16)]">
               <span className="text-sm font-medium text-[#ECFDF5]">
-                Точная подстройка:
+                Точная регулировка:
               </span>
 
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setUiScale(uiScale - 5)}
+                  onClick={() => setUiScale(uiScale - 1)}
                   disabled={uiScale <= 75}
-                  title="Уменьшить масштаб на 5%"
-                  className="flex items-center justify-center w-9 h-9 rounded-xl bg-[rgba(15,34,26,0.8)] border border-[rgba(74,222,128,0.25)] text-[#4ADE80] hover:bg-[rgba(74,222,128,0.15)] disabled:opacity-40 cursor-pointer transition-colors"
+                  title="Уменьшить масштаб на 1%"
+                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-[rgba(15,34,26,0.8)] border border-[rgba(74,222,128,0.25)] text-[#4ADE80] hover:bg-[rgba(74,222,128,0.15)] disabled:opacity-40 cursor-pointer transition-colors"
                 >
-                  <ZoomOut className="w-4 h-4" />
+                  <ZoomOut className="w-3.5 h-3.5" />
                 </button>
 
-                <div className="w-16 text-center font-mono font-bold text-sm text-[#4ADE80]">
-                  {uiScale}%
+                <div className="flex items-center bg-[#06100C] rounded-lg border border-[rgba(74,222,128,0.25)] px-2 py-1">
+                  <input
+                    type="number"
+                    min="75"
+                    max="135"
+                    value={uiScale}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      if (!isNaN(val)) setUiScale(val);
+                    }}
+                    className="w-10 bg-transparent text-center font-mono font-bold text-sm text-[#4ADE80] focus:outline-none"
+                  />
+                  <span className="text-xs text-[#A7F3D0]/60 font-mono">%</span>
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => setUiScale(uiScale + 5)}
+                  onClick={() => setUiScale(uiScale + 1)}
                   disabled={uiScale >= 135}
-                  title="Увеличить масштаб на 5%"
-                  className="flex items-center justify-center w-9 h-9 rounded-xl bg-[rgba(15,34,26,0.8)] border border-[rgba(74,222,128,0.25)] text-[#4ADE80] hover:bg-[rgba(74,222,128,0.15)] disabled:opacity-40 cursor-pointer transition-colors"
+                  title="Увеличить масштаб на 1%"
+                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-[rgba(15,34,26,0.8)] border border-[rgba(74,222,128,0.25)] text-[#4ADE80] hover:bg-[rgba(74,222,128,0.15)] disabled:opacity-40 cursor-pointer transition-colors"
                 >
-                  <ZoomIn className="w-4 h-4" />
+                  <ZoomIn className="w-3.5 h-3.5" />
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setUiScale(100)}
                   title="Сбросить на 100%"
-                  className="flex items-center justify-center w-9 h-9 rounded-xl bg-[rgba(15,34,26,0.8)] border border-[rgba(74,222,128,0.25)] text-[#A7F3D0]/70 hover:text-[#4ADE80] hover:bg-[rgba(74,222,128,0.15)] cursor-pointer transition-colors ml-1"
+                  className="flex items-center justify-center px-2.5 h-8 rounded-lg bg-[rgba(15,34,26,0.8)] border border-[rgba(74,222,128,0.25)] text-xs text-[#A7F3D0]/70 hover:text-[#4ADE80] hover:bg-[rgba(74,222,128,0.15)] cursor-pointer transition-colors ml-1"
                 >
-                  <RotateCcw className="w-4 h-4" />
+                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                  100%
                 </button>
               </div>
             </div>
