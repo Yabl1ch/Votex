@@ -82,6 +82,28 @@ class TestFrontendDesignSystem(unittest.TestCase):
             path = os.path.join(pages_dir, page)
             self.assertTrue(os.path.exists(path), f"Page {page} must exist")
 
+    def test_five_navigation_tabs_in_ui(self):
+        """Verify exactly 5 user tabs are in Sidebar and security tab is removed from UI."""
+        sidebar_path = os.path.join(SRC_DIR, "components", "navigation", "Sidebar.tsx")
+        with open(sidebar_path, "r", encoding="utf-8") as f:
+            sidebar_content = f.read()
+
+        # Check that 5 tabs are defined
+        self.assertIn('id: "dashboard"', sidebar_content)
+        self.assertIn('id: "provisioning"', sidebar_content)
+        self.assertIn('id: "reports"', sidebar_content)
+        self.assertIn('id: "subscription"', sidebar_content)
+        self.assertIn('id: "settings"', sidebar_content)
+
+        # Check that security is removed from navItems
+        self.assertNotIn('id: "security"', sidebar_content)
+
+        app_path = os.path.join(SRC_DIR, "App.tsx")
+        with open(app_path, "r", encoding="utf-8") as f:
+            app_content = f.read()
+        self.assertNotIn('security: "Безопасность и UFW"', app_content)
+        self.assertNotIn('activeTab === "security"', app_content)
+
     def test_bento_components_exist(self):
         """Ensure core bento components are present and exported."""
         bento_dir = os.path.join(SRC_DIR, "components", "bento")

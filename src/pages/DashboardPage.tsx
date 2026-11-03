@@ -14,7 +14,6 @@ import {
   RefreshCw,
   Clock,
   Cpu,
-  ArrowRight,
   Shield,
   Zap,
 } from "lucide-react";
@@ -69,14 +68,14 @@ export const DashboardPage: React.FC = () => {
   const ssLatency = protoBench?.shadowsocks?.latency_ms ?? 36;
 
   return (
-    <div className="space-y-5 animate-fadeIn">
+    <div className="space-y-4 animate-fadeIn">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 sm:px-6 pt-4">
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-5 md:px-6 pt-4 pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#ECFDF5] font-sans">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#ECFDF5] font-sans">
             Панель управления сервером
           </h1>
-          <p className="text-xs text-[#A7F3D0]/70 mt-0.5">
+          <p className="text-sm text-[#A7F3D0]/70 mt-1">
             Оперативный мониторинг антицензурного узла и быстрая синхронизация клиентов
           </p>
         </div>
@@ -84,10 +83,10 @@ export const DashboardPage: React.FC = () => {
         <div className="flex items-center gap-2 shrink-0">
           <GlassButton
             variant="secondary"
-            size="sm"
+            size="md"
             onClick={handleQuickPing}
             loading={isPinging}
-            icon={<RefreshCw className={`w-3.5 h-3.5 text-[#4ADE80] ${isPinging ? "animate-spin" : ""}`} />}
+            icon={<RefreshCw className={`w-4 h-4 text-[#4ADE80] ${isPinging ? "animate-spin" : ""}`} />}
             className="whitespace-nowrap"
           >
             Обновить статус
@@ -100,7 +99,7 @@ export const DashboardPage: React.FC = () => {
         <BentoCard
           colSpan={7}
           glow
-          icon={<Server className="w-4 h-4 text-[#4ADE80]" />}
+          icon={<Server className="w-5 h-5 text-[#4ADE80]" />}
           title="Состояние VPS узла"
           subtitle="Персональный выделенный сервер Votex"
           badge={
@@ -181,19 +180,14 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="mt-3 pt-3 border-t border-[rgba(74,222,128,0.1)] flex items-center justify-between text-xs text-[#A7F3D0]/80">
-            <span className="flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-[#4ADE80]" />
+          <div className="mt-3 pt-3 border-t border-[rgba(74,222,128,0.1)] flex items-center justify-between text-xs sm:text-sm text-[#A7F3D0]/80">
+            <span className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-[#4ADE80]" />
               Защита ядра Linux: TCP BBR + Fail2ban + UFW Firewall активны
             </span>
-            <button
-              type="button"
-              onClick={() => setActiveTab("security")}
-              className="text-[#4ADE80] hover:underline font-medium cursor-pointer flex items-center gap-1 whitespace-nowrap"
-            >
-              <span>Подробнее о защите</span>
-              <ArrowRight className="w-3 h-3" />
-            </button>
+            <span className="text-xs font-mono font-medium text-[#4ADE80] px-2.5 py-1 rounded-full bg-[#22C55E]/15 border border-[#22C55E]/30 whitespace-nowrap">
+              100% Защищено
+            </span>
           </div>
         </BentoCard>
 
@@ -201,22 +195,22 @@ export const DashboardPage: React.FC = () => {
         <BentoCard
           colSpan={5}
           glow
-          icon={<ExternalLink className="w-4 h-4 text-[#4ADE80]" />}
+          icon={<ExternalLink className="w-5 h-5 text-[#4ADE80]" />}
           title="Ссылка подписки"
           subtitle="Формат Base64 + Sing-Box JSON"
           badge={
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#22C55E]/15 text-[#4ADE80] border border-[#22C55E]/30 font-mono">
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#22C55E]/15 text-[#4ADE80] border border-[#22C55E]/30 font-mono">
               Happ / v2rayN
             </span>
           }
         >
-          <div className="space-y-3 my-1">
-            <p className="text-xs text-[#A7F3D0]/80 leading-relaxed">
+          <div className="space-y-3.5 my-1">
+            <p className="text-sm text-[#A7F3D0]/80 leading-relaxed">
               Персональный URL для автоматического импорта 5 настроенных протоколов в мобильный или десктопный клиент.
             </p>
 
-            <div className="p-3 rounded-xl bg-[rgba(8,20,15,0.85)] border border-[rgba(74,222,128,0.2)] flex items-center gap-2">
-              <div className="truncate font-mono text-xs text-[#4ADE80] select-all flex-1">
+            <div className="p-3.5 rounded-xl bg-[rgba(8,20,15,0.85)] border border-[rgba(74,222,128,0.2)] flex items-center gap-2">
+              <div className="truncate font-mono text-sm text-[#4ADE80] select-all flex-1">
                 {subUrl}
               </div>
             </div>
@@ -226,24 +220,24 @@ export const DashboardPage: React.FC = () => {
                 variant="primary"
                 size="md"
                 onClick={handleCopyLink}
-                icon={copied ? <Check className="w-4 h-4 text-[#06100C]" /> : <Copy className="w-4 h-4" />}
+                icon={copied ? <Check className="w-5 h-5 text-[#06100C]" /> : <Copy className="w-5 h-5" />}
                 className="w-full whitespace-nowrap"
               >
                 {copied ? "Ссылка скопирована в буфер!" : "Копировать ссылку для Happ"}
               </GlassButton>
             </div>
 
-            <div className="flex items-center justify-between pt-1 text-[11px] text-[#A7F3D0]/70">
-              <span className="flex items-center gap-1">
-                <Zap className="w-3 h-3 text-[#4ADE80]" />
+            <div className="flex items-center justify-between pt-1 text-xs text-[#A7F3D0]/70">
+              <span className="flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-[#4ADE80]" />
                 Auto-Select узел включен
               </span>
               <button
                 type="button"
                 onClick={() => setActiveTab("subscription")}
-                className="text-[#4ADE80] hover:underline cursor-pointer"
+                className="text-[#4ADE80] hover:underline cursor-pointer font-medium"
               >
-                QR-код и правила
+                QR-код и параметры
               </button>
             </div>
           </div>
@@ -254,7 +248,7 @@ export const DashboardPage: React.FC = () => {
           colSpan={12}
           title="Матрица активных протоколов обхода блокировок"
           subtitle="Все 5 независимых инстансов запущены и слушают защищенные порты"
-          icon={<Layers className="w-4 h-4 text-[#4ADE80]" />}
+          icon={<Layers className="w-5 h-5 text-[#4ADE80]" />}
           action={
             <GlassButton
               size="sm"

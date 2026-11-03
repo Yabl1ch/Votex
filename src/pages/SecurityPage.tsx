@@ -68,13 +68,13 @@ export const SecurityPage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-5 animate-fadeIn">
+    <div className="space-y-4 animate-fadeIn">
       {/* Page Header */}
-      <div className="px-4 sm:px-6 pt-4">
-        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#ECFDF5] font-sans">
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-5 md:px-6 pt-4 pb-2">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#ECFDF5] font-sans">
           Безопасность и управление сервером
         </h1>
-        <p className="text-xs text-[#A7F3D0]/70 mt-0.5">
+        <p className="text-sm text-[#A7F3D0]/70 mt-1">
           Антибот защита Fail2ban, межсетевой экран UFW, матрица портов и статус харднинга ядра Linux
         </p>
       </div>

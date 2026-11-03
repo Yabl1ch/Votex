@@ -216,13 +216,13 @@ export const ProvisioningPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5 animate-fadeIn">
+    <div className="space-y-4 animate-fadeIn">
       {/* Page Header */}
-      <div className="px-4 sm:px-6 pt-4">
-        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#ECFDF5] font-sans">
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-5 md:px-6 pt-4 pb-2">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#ECFDF5] font-sans">
           Мастер автоматической установки VPS
         </h1>
-        <p className="text-xs text-[#A7F3D0]/70 mt-0.5">
+        <p className="text-sm text-[#A7F3D0]/70 mt-1">
           Развертывание 5 протоколов обхода блокировок, харднинг ядра Linux и автогенерация подписки
         </p>
       </div>
@@ -232,7 +232,7 @@ export const ProvisioningPage: React.FC = () => {
         <div className="lg:col-span-5 flex flex-col gap-4">
           <BentoCard
             glow
-            icon={<Server className="w-4 h-4 text-[#4ADE80]" />}
+            icon={<Server className="w-5 h-5 text-[#4ADE80]" />}
             title="Параметры целевого сервера"
             subtitle="Ubuntu 22.04 / 24.04 или Debian 11 / 12"
             badge={
@@ -309,7 +309,7 @@ export const ProvisioningPage: React.FC = () => {
                 onClick={handleTestConnection}
                 loading={status === "testing"}
                 disabled={status === "provisioning"}
-                icon={<Activity className="w-4 h-4 text-[#4ADE80]" />}
+                icon={<Activity className="w-5 h-5 text-[#4ADE80]" />}
                 className="flex-1 whitespace-nowrap"
               >
                 Проверить соединение
@@ -321,7 +321,7 @@ export const ProvisioningPage: React.FC = () => {
                 onClick={handleRunProvisioning}
                 loading={status === "provisioning"}
                 disabled={status === "testing"}
-                icon={<Zap className="w-4 h-4" />}
+                icon={<Zap className="w-5 h-5" />}
                 className="flex-1 whitespace-nowrap"
               >
                 Настроить и защитить сервер

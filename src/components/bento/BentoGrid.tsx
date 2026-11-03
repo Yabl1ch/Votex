@@ -25,7 +25,7 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
   return (
     <div
       className={clsx(
-        "grid p-4 sm:p-5 md:p-6 gap-4 sm:gap-4 md:gap-5 w-full max-w-7xl mx-auto",
+        "grid px-4 sm:px-5 md:px-6 pt-2 pb-6 gap-4 sm:gap-4 md:gap-5 w-full max-w-7xl mx-auto",
         colStyles,
         className
       )}

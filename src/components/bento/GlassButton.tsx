@@ -28,9 +28,9 @@ export const GlassButton: React.FC<GlassButtonProps> = ({
     "inline-flex items-center justify-center font-medium rounded-xl select-none whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none transition-all duration-200";
 
   const sizeStyles = {
-    sm: "px-3 py-1.5 text-xs gap-1.5",
-    md: "px-4 py-2 text-sm gap-2",
-    lg: "px-5 py-2.5 text-base gap-2.5",
+    sm: "px-3.5 py-1.5 text-xs gap-1.5 h-9 [&>span>svg]:w-4 [&>span>svg]:h-4",
+    md: "px-5 py-2.5 text-sm sm:text-base gap-2.5 h-11 [&>span>svg]:w-5 [&>span>svg]:h-5",
+    lg: "px-6 py-3.5 text-base gap-3 h-12 sm:h-14 [&>span>svg]:w-5 [&>span>svg]:h-5",
   }[size];
 
   const variantStyles = {
@@ -55,13 +55,13 @@ export const GlassButton: React.FC<GlassButtonProps> = ({
       {...props}
     >
       {loading ? (
-        <Loader2 className="w-4 h-4 animate-spin shrink-0 text-current" />
+        <Loader2 className={clsx("animate-spin shrink-0 text-current", size === "sm" ? "w-4 h-4" : "w-5 h-5")} />
       ) : (
-        icon && iconPosition === "left" && <span className="shrink-0">{icon}</span>
+        icon && iconPosition === "left" && <span className="shrink-0 flex items-center justify-center">{icon}</span>
       )}
       <span className="whitespace-nowrap truncate">{children}</span>
       {!loading && icon && iconPosition === "right" && (
-        <span className="shrink-0">{icon}</span>
+        <span className="shrink-0 flex items-center justify-center">{icon}</span>
       )}
     </motion.button>
   );

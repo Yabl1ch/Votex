@@ -62,7 +62,7 @@ export const BentoCard: React.FC<BentoCardProps> = ({
           : undefined
       }
       className={clsx(
-        "relative rounded-2xl p-4 sm:p-5 md:p-6 transition-colors duration-300",
+        "relative rounded-2xl p-5 sm:p-6 md:p-7 transition-colors duration-300",
         "bg-[rgba(15,34,26,0.65)] backdrop-blur-[24px] saturate-[160%]",
         "border border-[rgba(74,222,128,0.18)]",
         "shadow-[inset_0_1px_1px_0_rgba(255,255,255,0.12),0_16px_36px_-12px_rgba(0,0,0,0.5)]",
@@ -75,20 +75,20 @@ export const BentoCard: React.FC<BentoCardProps> = ({
     >
       {(title || icon || badge || action) && (
         <div className="flex items-center justify-between pb-3.5 mb-4 border-b border-[rgba(74,222,128,0.12)]">
-          <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center gap-3 min-w-0">
             {icon && (
-              <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-[rgba(74,222,128,0.1)] border border-[rgba(74,222,128,0.2)] text-[#4ADE80] shrink-0">
+              <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-[rgba(74,222,128,0.1)] border border-[rgba(74,222,128,0.2)] text-[#4ADE80] shrink-0 [&>svg]:w-5 [&>svg]:h-5">
                 {icon}
               </div>
             )}
             <div className="min-w-0">
               {title && (
-                <h3 className="text-sm font-semibold tracking-tight text-[#ECFDF5] truncate">
+                <h3 className="text-base sm:text-lg font-semibold tracking-tight text-[#ECFDF5] truncate">
                   {title}
                 </h3>
               )}
               {subtitle && (
-                <p className="text-xs text-[#A7F3D0]/70 truncate">{subtitle}</p>
+                <p className="text-xs sm:text-sm text-[#A7F3D0]/70 truncate">{subtitle}</p>
               )}
             </div>
           </div>
