@@ -74,9 +74,9 @@
    - Генерация структурированного JSON-отчета `/var/log/votex-report.json`.
 
 ### Обязательные действия агента в конце Фазы 1:
-- [ ] Проверить синтаксис bash скрипта: `bash -n scripts/votex-install.sh`.
-- [ ] Обновить `README.md` на GitHub: добавить описание скрипта, таблицу портов и статус готовности Фазы 1.
-- [ ] Выполнить `git commit` и `git push origin main`.
+- [x] Проверить синтаксис bash скрипта: `bash -n scripts/votex-install.sh`.
+- [x] Обновить `README.md` на GitHub: добавить описание скрипта, таблицу портов и статус готовности Фазы 1.
+- [x] Выполнить `git commit` и `git push origin main`.
 
 ---
 

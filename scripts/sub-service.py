@@ -1,0 +1,595 @@
+#!/usr/bin/env python3
+"""
+Votex: Stealth Subscription Microservice
+Provides dynamic Base64 subscription links and full JSON client profile
+with burstObservatory, Smart Routing (Direct/Proxy/Block), and TLS fragmentation.
+"""
+
+import base64
+import http.server
+import json
+import os
+import socketserver
+import sys
+import urllib.parse
+from typing import Any, Dict, List, Optional
+
+DEFAULT_CONFIG_PATH = "/etc/votex/config.json"
+DEFAULT_PORT = 18080
+
+
+def load_server_config(config_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]:
+    """Load configuration from file or environment variables."""
+    cfg: Dict[str, Any] = {
+        "server_ip": os.getenv("VOTEX_SERVER_IP", "127.0.0.1"),
+        "subscription_token": os.getenv("VOTEX_SUBSCRIPTION_TOKEN", "default_secret_token"),
+        "client_uuid": os.getenv("VOTEX_CLIENT_UUID", "00000000-0000-0000-0000-000000000000"),
+        "reality_public_key": os.getenv("VOTEX_REALITY_PUBLIC_KEY", "dummy_pubkey"),
+        "reality_short_id": os.getenv("VOTEX_REALITY_SHORT_ID", "0123456789abcdef"),
+        "ss_password": os.getenv("VOTEX_SS_PASSWORD", "dummy_sspassword"),
+        "hy_password": os.getenv("VOTEX_HY_PASSWORD", "dummy_hypassword"),
+        "port": int(os.getenv("VOTEX_SUB_PORT", str(DEFAULT_PORT))),
+    }
+
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                file_cfg = json.load(f)
+                cfg.update(file_cfg)
+        except Exception as e:
+            sys.stderr.write(f"Warning: Failed to parse {config_path}: {e}\n")
+
+    return cfg
+
+
+def build_base64_subscription(cfg: Dict[str, Any]) -> str:
+    """Generate Base64 encoded subscription link list."""
+    server_ip = cfg.get("server_ip", "127.0.0.1")
+    uuid = cfg.get("client_uuid", "")
+    pub_key = cfg.get("reality_public_key", "")
+    short_id = cfg.get("reality_short_id", "")
+    hy_pass = cfg.get("hy_password", "")
+    ss_pass = cfg.get("ss_password", "")
+
+    # SS-2022 userinfo base64 encoded (2022-blake3-aes-128-gcm:pass)
+    ss_auth_str = f"2022-blake3-aes-128-gcm:{ss_pass}"
+    ss_auth_b64 = base64.urlsafe_b64encode(ss_auth_str.encode("utf-8")).decode("utf-8").rstrip("=")
+
+    links: List[str] = [
+        (
+            f"vless://{uuid}@{server_ip}:20443"
+            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
+            f"&type=tcp&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid={short_id}"
+            f"#Votex-Reality-Vision"
+        ),
+        (
+            f"vless://{uuid}@{server_ip}:2053"
+            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
+            f"&type=xhttp&sni=addons.mozilla.org&sid={short_id}"
+            f"&path=%2Fassets%2Fbuild%2F_app%2Fimmutable%2Fchunks%2Fstream-one%2F"
+            f"#Votex-SplitHTTP-AntiDPI"
+        ),
+        (
+            f"vless://{uuid}@{server_ip}:8443"
+            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
+            f"&type=grpc&serviceName=yabl1ch-grpc&sni=addons.mozilla.org&sid={short_id}"
+            f"#Votex-Reality-gRPC"
+        ),
+        (
+            f"hysteria2://{hy_pass}@{server_ip}:2083"
+            f"/?insecure=1&sni=addons.mozilla.org"
+            f"#Votex-Hysteria2-Gaming"
+        ),
+        (
+            f"ss://{ss_auth_b64}@{server_ip}:2088"
+            f"#Votex-Shadowsocks-2022"
+        ),
+    ]
+
+    joined_links = "\n".join(links)
+    return base64.b64encode(joined_links.encode("utf-8")).decode("utf-8")
+
+
+def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate complete JSON client profile with burstObservatory, routing & fragmentation."""
+    server_ip = cfg.get("server_ip", "127.0.0.1")
+    uuid = cfg.get("client_uuid", "")
+    pub_key = cfg.get("reality_public_key", "")
+    short_id = cfg.get("reality_short_id", "")
+    hy_pass = cfg.get("hy_password", "")
+    ss_pass = cfg.get("ss_password", "")
+
+    russian_domains = [
+        "geosite:category-ru",
+        "geosite:category-gov-ru",
+        "geosite:yandex",
+        "geosite:vk",
+        "geosite:ok",
+        "regexp:^(.+\\.)?ru$",
+        "regexp:^(.+\\.)?su$",
+        "regexp:^(.+\\.)?xn--p1ai$",
+        "domain:sberbank.ru",
+        "domain:sberbank.com",
+        "domain:sber-bank.by",
+        "domain:sber.ru",
+        "domain:sber.pro",
+        "domain:giga.chat",
+        "domain:sbercloud.tech",
+        "domain:tbank.ru",
+        "domain:tinkoff.ru",
+        "domain:tinkoff-group.com",
+        "domain:tbank-online.com",
+        "domain:cdn-tinkoff.ru",
+        "domain:alfabank.ru",
+        "domain:vtb.ru",
+        "domain:gazprombank.ru",
+        "domain:gazprombank.com",
+        "domain:tochka.com",
+        "domain:gosuslugi.ru",
+        "domain:nalog.gov.ru",
+        "domain:mos.ru",
+        "domain:emias.info",
+        "domain:ozon.ru",
+        "domain:ozon.com",
+        "domain:ozon.by",
+        "domain:ozon.kz",
+        "domain:ozonusercontent.com",
+        "domain:wildberries.ru",
+        "domain:paywb.com",
+        "domain:avito.ru",
+        "domain:megamarket.ru",
+        "domain:megamarket.tech",
+        "domain:market.yandex.ru",
+        "domain:dns-shop.ru",
+        "domain:yandex.ru",
+        "domain:yandex.com",
+        "domain:yandex.net",
+        "domain:ya.ru",
+        "domain:kinopoisk.ru",
+        "domain:vk.com",
+        "domain:vk.me",
+        "domain:userapi.com",
+        "domain:mail.ru",
+        "domain:ok.ru",
+        "domain:rutube.ru",
+        "domain:2gis.ru",
+        "domain:2gis.com",
+        "domain:aviasales.ru",
+        "domain:aviasales.com",
+    ]
+
+    ai_and_blocked_domains = [
+        "domain:openai.com",
+        "domain:chatgpt.com",
+        "domain:oaistatic.com",
+        "domain:oaiusercontent.com",
+        "domain:anthropic.com",
+        "domain:claude.ai",
+        "domain:gemini.google.com",
+        "domain:generativelanguage.googleapis.com",
+        "domain:ai.google.dev",
+        "domain:youtube.com",
+        "domain:googlevideo.com",
+        "domain:ytimg.com",
+        "domain:discord.com",
+        "domain:discord.gg",
+        "domain:discordapp.com",
+        "domain:instagram.com",
+        "domain:cdninstagram.com",
+        "domain:facebook.com",
+        "domain:fbcdn.net",
+        "domain:twitter.com",
+        "domain:x.com",
+        "domain:twimg.com",
+        "domain:github.com",
+        "domain:githubusercontent.com",
+    ]
+
+    apple_relay_domains = [
+        "domain:mask.icloud.com",
+        "domain:mask-h2.icloud.com",
+        "domain:mask-api.icloud.com",
+        "domain:dns.apple.com",
+        "domain:doh.dns.apple.com",
+    ]
+
+    profile: Dict[str, Any] = {
+        "remarks": "Votex | All-In-One SmartRouting",
+        "burstObservatory": {
+            "pingConfig": {
+                "destination": "http://www.gstatic.com/generate_204",
+                "interval": "1m",
+                "sampling": 1,
+                "timeout": "6s",
+            },
+            "subjectSelector": [
+                "vision",
+                "xhttp",
+                "grpc",
+                "hy2",
+                "ss2022",
+            ],
+        },
+        "dns": {
+            "hosts": {
+                "dns.apple.com": ["0.0.0.0"],
+                "doh.dns.apple.com": ["0.0.0.0"],
+                "mask-api.icloud.com": ["0.0.0.0"],
+                "mask-h2.icloud.com": ["0.0.0.0"],
+                "mask.icloud.com": ["0.0.0.0"],
+            },
+            "queryStrategy": "UseIP",
+            "servers": [
+                {
+                    "address": "77.88.8.8",
+                    "domains": russian_domains,
+                    "skipFallback": True,
+                },
+                {
+                    "address": "https://1.1.1.1/dns-query",
+                    "domains": ai_and_blocked_domains,
+                },
+                "1.1.1.1",
+                "8.8.8.8",
+            ],
+        },
+        "inbounds": [
+            {
+                "listen": "127.0.0.1",
+                "port": 10808,
+                "protocol": "socks",
+                "settings": {
+                    "auth": "noauth",
+                    "udp": True,
+                },
+                "sniffing": {
+                    "destOverride": ["http", "tls", "quic"],
+                    "enabled": True,
+                    "routeOnly": False,
+                },
+                "tag": "socks",
+            },
+            {
+                "listen": "127.0.0.1",
+                "port": 10809,
+                "protocol": "http",
+                "settings": {
+                    "allowTransparent": False,
+                },
+                "sniffing": {
+                    "destOverride": ["http", "tls", "quic"],
+                    "enabled": True,
+                    "routeOnly": False,
+                },
+                "tag": "http",
+            },
+        ],
+        "outbounds": [
+            {
+                "protocol": "vless",
+                "tag": "vision",
+                "settings": {
+                    "vnext": [
+                        {
+                            "address": server_ip,
+                            "port": 20443,
+                            "users": [
+                                {
+                                    "id": uuid,
+                                    "flow": "xtls-rprx-vision",
+                                    "encryption": "none",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "streamSettings": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {
+                        "fingerprint": "firefox",
+                        "publicKey": pub_key,
+                        "serverName": "addons.mozilla.org",
+                        "shortId": short_id,
+                        "spiderX": "/",
+                    },
+                    "tcpSettings": {
+                        "header": {"type": "none"}
+                    },
+                    "sockopt": {
+                        "dialerProxy": "fragment-out"
+                    },
+                },
+            },
+            {
+                "protocol": "vless",
+                "tag": "xhttp",
+                "settings": {
+                    "vnext": [
+                        {
+                            "address": server_ip,
+                            "port": 2053,
+                            "users": [
+                                {
+                                    "id": uuid,
+                                    "encryption": "none",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "streamSettings": {
+                    "network": "xhttp",
+                    "security": "reality",
+                    "realitySettings": {
+                        "fingerprint": "firefox",
+                        "publicKey": pub_key,
+                        "serverName": "addons.mozilla.org",
+                        "shortId": short_id,
+                    },
+                    "xhttpSettings": {
+                        "host": "addons.mozilla.org",
+                        "mode": "auto",
+                        "path": "/assets/build/_app/immutable/chunks/stream-one/",
+                        "extra": {
+                            "noGRPCHeader": False,
+                            "noSSEHeader": False,
+                            "scMaxEachPostBytes": "393216-786432",
+                            "scMinPostsIntervalMs": "30",
+                            "scStreamUpServerSecs": "20-80",
+                            "xPaddingBytes": "100-500",
+                            "xmux": {
+                                "cMaxReuseTimes": "200-300",
+                                "hKeepAlivePeriod": 60,
+                                "hMaxRequestTimes": "200-300",
+                                "hMaxReusableSecs": "600-900",
+                                "maxConnections": 1,
+                            },
+                        },
+                    },
+                    "sockopt": {
+                        "dialerProxy": "fragment-out"
+                    },
+                },
+            },
+            {
+                "protocol": "vless",
+                "tag": "grpc",
+                "settings": {
+                    "vnext": [
+                        {
+                            "address": server_ip,
+                            "port": 8443,
+                            "users": [
+                                {
+                                    "id": uuid,
+                                    "encryption": "none",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "streamSettings": {
+                    "network": "grpc",
+                    "security": "reality",
+                    "realitySettings": {
+                        "fingerprint": "firefox",
+                        "publicKey": pub_key,
+                        "serverName": "addons.mozilla.org",
+                        "shortId": short_id,
+                    },
+                    "grpcSettings": {
+                        "serviceName": "yabl1ch-grpc",
+                        "multiMode": True,
+                    },
+                    "sockopt": {
+                        "dialerProxy": "fragment-out"
+                    },
+                },
+            },
+            {
+                "protocol": "hysteria",
+                "tag": "hy2",
+                "settings": {
+                    "address": server_ip,
+                    "port": 2083,
+                    "version": 2,
+                },
+                "streamSettings": {
+                    "network": "hysteria",
+                    "security": "tls",
+                    "hysteriaSettings": {
+                        "auth": hy_pass,
+                        "version": 2,
+                    },
+                    "tlsSettings": {
+                        "alpn": ["h3"],
+                        "enableSessionResumption": False,
+                        "fingerprint": "firefox",
+                        "serverName": "addons.mozilla.org",
+                        "allowInsecure": True,
+                    },
+                },
+            },
+            {
+                "protocol": "shadowsocks",
+                "tag": "ss2022",
+                "settings": {
+                    "servers": [
+                        {
+                            "address": server_ip,
+                            "port": 2088,
+                            "method": "2022-blake3-aes-128-gcm",
+                            "password": ss_pass,
+                        }
+                    ]
+                },
+            },
+            {
+                "protocol": "freedom",
+                "tag": "fragment-out",
+                "settings": {
+                    "fragment": {
+                        "packets": "1-3",
+                        "length": "100-200",
+                        "interval": "10-20",
+                    }
+                },
+            },
+            {
+                "protocol": "freedom",
+                "tag": "direct",
+            },
+            {
+                "protocol": "blackhole",
+                "tag": "block",
+            },
+        ],
+        "routing": {
+            "balancers": [
+                {
+                    "tag": "VotexBalancer",
+                    "selector": [
+                        "vision",
+                        "xhttp",
+                        "grpc",
+                        "hy2",
+                        "ss2022",
+                    ],
+                    "strategy": {
+                        "type": "leastPing",
+                    },
+                }
+            ],
+            "domainMatcher": "hybrid",
+            "domainStrategy": "IPIfNonMatch",
+            "rules": [
+                {
+                    "type": "field",
+                    "outboundTag": "block",
+                    "domain": apple_relay_domains,
+                },
+                {
+                    "type": "field",
+                    "outboundTag": "block",
+                    "protocol": ["bittorrent"],
+                },
+                {
+                    "type": "field",
+                    "outboundTag": "block",
+                    "domain": ["geosite:category-ads-all"],
+                },
+                {
+                    "type": "field",
+                    "outboundTag": "direct",
+                    "domain": russian_domains,
+                },
+                {
+                    "type": "field",
+                    "outboundTag": "direct",
+                    "ip": ["geoip:ru", "geoip:private"],
+                },
+                {
+                    "type": "field",
+                    "balancerTag": "VotexBalancer",
+                    "network": "tcp,udp",
+                },
+            ],
+        },
+    }
+
+    return profile
+
+
+class VotexSubHandler(http.server.BaseHTTPRequestHandler):
+    """HTTP Request Handler for Votex subscription endpoint."""
+
+    server_config: Dict[str, Any] = {}
+
+    def do_GET(self) -> None:
+        cfg = self.server_config or load_server_config()
+        token = cfg.get("subscription_token", "")
+
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        query = urllib.parse.parse_qs(parsed.query)
+
+        # Validate secret token path
+        expected_path = f"/sub/{token}"
+        if path != expected_path:
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"Not Found")
+            return
+
+        user_agent = self.headers.get("User-Agent", "").lower()
+        format_param = query.get("format", [""])[0].lower()
+        is_json = (
+            format_param == "json"
+            or "happ" in user_agent
+            or "sing-box" in user_agent
+            or "xray" in user_agent
+        )
+
+        if is_json:
+            profile_data = build_json_profile(cfg)
+            response_bytes = json.dumps(profile_data, indent=2, ensure_ascii=False).encode("utf-8")
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Profile-Title", "Votex Private Cloud")
+            self.send_header("Profile-Update-Interval", "24")
+            self.send_header(
+                "Subscription-Userinfo",
+                "upload=0; download=0; total=1073741824000; expire=0",
+            )
+            self.send_header("Content-Length", str(len(response_bytes)))
+            self.end_headers()
+            self.wfile.write(response_bytes)
+        else:
+            b64_content = build_base64_subscription(cfg)
+            response_bytes = b64_content.encode("utf-8")
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Profile-Title", "Votex Private Cloud")
+            self.send_header("Profile-Update-Interval", "24")
+            self.send_header(
+                "Subscription-Userinfo",
+                "upload=0; download=0; total=1073741824000; expire=0",
+            )
+            self.send_header("Content-Length", str(len(response_bytes)))
+            self.end_headers()
+            self.wfile.write(response_bytes)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        """Suppress default stdout access logs for stealth."""
+        return
+
+
+def run_server(config_path: str = DEFAULT_CONFIG_PATH) -> None:
+    """Start standalone subscription HTTP daemon."""
+    cfg = load_server_config(config_path)
+    port = cfg.get("port", DEFAULT_PORT)
+    token = cfg.get("subscription_token", "")
+
+    VotexSubHandler.server_config = cfg
+
+    # Allow port reuse
+    socketserver.TCPServer.allow_reuse_address = True
+    with socketserver.TCPServer(("0.0.0.0", port), VotexSubHandler) as httpd:
+        sys.stdout.write(
+            f"Votex Subscription Microservice running on 0.0.0.0:{port}\n"
+            f"Endpoint: /sub/{token}\n"
+        )
+        sys.stdout.flush()
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            pass
+
+
+if __name__ == "__main__":
+    cfg_file = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_CONFIG_PATH
+    run_server(cfg_file)
