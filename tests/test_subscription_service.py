@@ -35,7 +35,7 @@ class TestSubscriptionService(unittest.TestCase):
         }
 
     def test_build_base64_subscription(self):
-        """Verify that Base64 output contains 6 valid URIs (including Auto-Select)."""
+        """Verify that Base64 output contains exactly 5 clean protocol URIs."""
         b64_output = sub_service.build_base64_subscription(self.sample_config)
         self.assertIsInstance(b64_output, str)
 
@@ -43,19 +43,10 @@ class TestSubscriptionService(unittest.TestCase):
         decoded_text = decoded_bytes.decode("utf-8")
         links = [line.strip() for line in decoded_text.splitlines() if line.strip()]
 
-        self.assertEqual(len(links), 6, f"Expected 6 links, got {len(links)}")
+        self.assertEqual(len(links), 5, f"Expected 5 links, got {len(links)}")
 
-        # Check 1: Auto-select node (First node)
-        auto_link = links[0]
-        self.assertTrue(auto_link.startswith("vless://"))
-        self.assertIn("198.51.100.42:20443", auto_link)
-        self.assertIn("flow=xtls-rprx-vision", auto_link)
-        self.assertIn("sni=addons.mozilla.org", auto_link)
-        self.assertIn("e8a93ef0-5b74-4b53-90d2-5b91b8f17bc1", auto_link)
-        self.assertIn("Votex-Auto-Select", auto_link)
-
-        # Check 2: Vision link
-        vision_link = links[1]
+        # Check 1: Vision link
+        vision_link = links[0]
         self.assertTrue(vision_link.startswith("vless://"))
         self.assertIn("198.51.100.42:20443", vision_link)
         self.assertIn("flow=xtls-rprx-vision", vision_link)
@@ -64,14 +55,14 @@ class TestSubscriptionService(unittest.TestCase):
         self.assertIn("Votex-Reality-Vision", vision_link)
 
         # Check 3: SplitHTTP link
-        xhttp_link = links[2]
+        xhttp_link = links[1]
         self.assertTrue(xhttp_link.startswith("vless://"))
         self.assertIn("198.51.100.42:2053", xhttp_link)
         self.assertIn("type=xhttp", xhttp_link)
         self.assertIn("Votex-SplitHTTP-AntiDPI", xhttp_link)
 
         # Check 4: gRPC link
-        grpc_link = links[3]
+        grpc_link = links[2]
         self.assertTrue(grpc_link.startswith("vless://"))
         self.assertIn("198.51.100.42:8443", grpc_link)
         self.assertIn("type=grpc", grpc_link)
@@ -79,7 +70,7 @@ class TestSubscriptionService(unittest.TestCase):
         self.assertIn("Votex-Reality-gRPC", grpc_link)
 
         # Check 5: Hysteria 2 link (Port 443 UDP with insecure=1&allowInsecure=1)
-        hy2_link = links[4]
+        hy2_link = links[3]
         self.assertTrue(hy2_link.startswith("hysteria2://"))
         self.assertIn("198.51.100.42:443", hy2_link)
         self.assertIn("secret_hy_pass_2026", hy2_link)
@@ -91,10 +82,10 @@ class TestSubscriptionService(unittest.TestCase):
         cfg_with_pin = dict(self.sample_config, hy_cert_sha256="abcd1234ef567890")
         b64_with_pin = sub_service.build_base64_subscription(cfg_with_pin)
         links_with_pin = base64.b64decode(b64_with_pin.encode("utf-8")).decode("utf-8").splitlines()
-        self.assertIn("pinSHA256=abcd1234ef567890", links_with_pin[4])
+        self.assertIn("pinSHA256=abcd1234ef567890", links_with_pin[3])
 
         # Check 6: Shadowsocks-2022 link
-        ss_link = links[5]
+        ss_link = links[4]
         self.assertTrue(ss_link.startswith("ss://"))
         self.assertIn("198.51.100.42:2088", ss_link)
         self.assertIn("Votex-Shadowsocks-2022", ss_link)
@@ -158,11 +149,7 @@ class TestSubscriptionService(unittest.TestCase):
         self.assertTrue(outbound_map["hy2"]["streamSettings"]["tlsSettings"]["insecure"])
         self.assertTrue(outbound_map["hy2"]["streamSettings"]["tlsSettings"]["allowInsecure"])
         self.assertIn("ss2022", outbound_map)
-        self.assertIn("Auto-Select", outbound_map)
-        auto_ob = outbound_map["Auto-Select"]
-        self.assertEqual(auto_ob["type"], "urltest")
-        self.assertEqual(auto_ob["url"], "http://cp.cloudflare.com/generate_204")
-        self.assertListEqual(auto_ob["outbounds"], ["vision", "xhttp", "grpc", "hy2", "ss2022"])
+        self.assertNotIn("Auto-Select", outbound_map)
         self.assertIn("fragment-out", outbound_map)
         self.assertIn("direct", outbound_map)
         self.assertIn("block", outbound_map)
@@ -243,7 +230,7 @@ class TestSubscriptionHttpServer(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 404)
 
     def test_200_base64_response(self):
-        url = f"http://127.0.0.1:{self.port}/sub/{self.token}"
+        url = f"http://127.0.0.1:{self.port}/sub/{self.token}?format=b64"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req) as resp:
             self.assertEqual(resp.status, 200)
@@ -263,30 +250,42 @@ class TestSubscriptionHttpServer(unittest.TestCase):
         with urllib.request.urlopen(url) as resp:
             self.assertEqual(resp.status, 200)
             self.assertEqual(resp.headers.get("Content-Type"), "application/json; charset=utf-8")
-            self.assertEqual(resp.headers.get("Profile-Title"), "Votex")
+            self.assertEqual(resp.headers.get("Profile-Title"), "Votex / JSON")
             data = json.loads(resp.read().decode("utf-8"))
-            self.assertEqual(data["remarks"], "Votex")
+            self.assertEqual(data["remarks"], "Votex / JSON")
             self.assertIn("burstObservatory", data)
             self.assertIn("outbounds", data)
             self.assertIn("routing", data)
 
-    def test_200_happ_user_agent_gets_base64_with_5_protocols(self):
-        """Verify Happ client receives all 6 nodes (Auto-Select + 5 protocols) via Base64."""
+    def test_200_happ_user_agent_gets_json_with_smart_routing(self):
+        """Verify Happ client receives JSON profile with Smart Routing and Profile-Title 'Votex / JSON'."""
         url = f"http://127.0.0.1:{self.port}/sub/{self.token}"
         req = urllib.request.Request(url, headers={"User-Agent": "Happ/2.4.0 (Windows NT 10.0)"})
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            self.assertEqual(resp.headers.get("Profile-Title"), "Votex / JSON")
+            self.assertEqual(resp.headers.get("Content-Type"), "application/json; charset=utf-8")
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data["remarks"], "Votex / JSON")
+            self.assertIn("routing", data)
+            self.assertIn("burstObservatory", data)
+
+    def test_200_v2rayn_user_agent_gets_base64_with_5_protocols(self):
+        """Verify v2rayN client receives 5 clean protocol links via Base64."""
+        url = f"http://127.0.0.1:{self.port}/sub/{self.token}"
+        req = urllib.request.Request(url, headers={"User-Agent": "v2rayN/6.23"})
         with urllib.request.urlopen(req) as resp:
             self.assertEqual(resp.status, 200)
             self.assertEqual(resp.headers.get("Profile-Title"), "Votex")
             body = resp.read().decode("utf-8")
             decoded = base64.b64decode(body.encode("utf-8")).decode("utf-8")
             lines = [l.strip() for l in decoded.splitlines() if l.strip()]
-            self.assertEqual(len(lines), 6, f"Expected 6 protocol configs for Happ, got {len(lines)}")
-            self.assertIn("#Votex-Auto-Select", lines[0])
-            self.assertIn("#Votex-Reality-Vision", lines[1])
-            self.assertIn("#Votex-SplitHTTP-AntiDPI", lines[2])
-            self.assertIn("#Votex-Reality-gRPC", lines[3])
-            self.assertIn("#Votex-Hysteria2-Gaming", lines[4])
-            self.assertIn("#Votex-Shadowsocks-2022", lines[5])
+            self.assertEqual(len(lines), 5, f"Expected 5 protocol configs for v2rayN, got {len(lines)}")
+            self.assertIn("#Votex-Reality-Vision", lines[0])
+            self.assertIn("#Votex-SplitHTTP-AntiDPI", lines[1])
+            self.assertIn("#Votex-Reality-gRPC", lines[2])
+            self.assertIn("#Votex-Hysteria2-Gaming", lines[3])
+            self.assertIn("#Votex-Shadowsocks-2022", lines[4])
 
     def test_204_generate_204_endpoint(self):
         url = f"http://127.0.0.1:{self.port}/generate_204"

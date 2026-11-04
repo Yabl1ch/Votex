@@ -703,7 +703,7 @@ def load_server_config(config_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]
 
 
 def build_base64_subscription(cfg: Dict[str, Any]) -> str:
-    """Generate Base64 encoded subscription link list with 6 protocols (including Auto-Select)."""
+    """Generate Base64 encoded subscription link list with 5 protocols."""
     server_ip = cfg.get("server_ip", "127.0.0.1")
     uuid = cfg.get("client_uuid", "")
     pub_key = cfg.get("reality_public_key", "")
@@ -712,7 +712,6 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     hy_pass = cfg.get("hy_password", "")
     ss_pass = cfg.get("ss_password", "")
     cert_sha256 = cfg.get("hy_cert_sha256", "")
-    sni = cfg.get("reality_sni", "addons.mozilla.org")
 
     # SS-2022 userinfo base64 encoded (2022-blake3-aes-128-gcm:pass)
     ss_auth_str = f"2022-blake3-aes-128-gcm:{ss_pass}"
@@ -721,12 +720,6 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     pin_param = f"&pinSHA256={cert_sha256}" if cert_sha256 else ""
 
     links: List[str] = [
-        (
-            f"vless://{uuid}@{server_ip}:20443"
-            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
-            f"&type=tcp&flow=xtls-rprx-vision&sni={sni}&sid={short_id}"
-            f"#Votex-Auto-Select"
-        ),
         (
             f"vless://{uuid}@{server_ip}:20443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
@@ -867,7 +860,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
     ]
 
     profile: Dict[str, Any] = {
-        "remarks": "Votex",
+        "remarks": "Votex / JSON",
         "burstObservatory": {
             "pingConfig": {
                 "destination": "http://cp.cloudflare.com/generate_204",
@@ -1106,22 +1099,6 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
             },
             {
                 "protocol": "freedom",
-                "type": "urltest",
-                "tag": "Auto-Select",
-                "settings": {},
-                "outbounds": [
-                    "vision",
-                    "xhttp",
-                    "grpc",
-                    "hy2",
-                    "ss2022",
-                ],
-                "url": "http://cp.cloudflare.com/generate_204",
-                "interval": "1m",
-                "tolerance": 50,
-            },
-            {
-                "protocol": "freedom",
                 "tag": "fragment-out",
                 "settings": {
                     "fragment": {
@@ -1335,25 +1312,28 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
             format_param = query.get("format", [""])[0].lower()
             accept_header = self.headers.get("Accept", "").lower()
 
-            # Return JSON with Smart Routing profile only when explicitly requested
-            # (?format=json or Accept: application/json without wildcard)
-            # By default (including for Happ, v2rayN, etc.), serve Base64 with all 6 protocols
-            is_json = (
-                format_param == "json"
+            # Serve JSON with Smart Routing profile for Happ, sing-box, xray or when not requesting b64.
+            # Base64 is only served when explicitly requested (?format=b64 or ?format=base64)
+            # or for clients that require raw link lists (v2rayN, or desktop browser view).
+            is_base64 = (
+                format_param in ("b64", "base64")
+                or "v2rayn" in user_agent
                 or (
-                    "application/json" in accept_header
-                    and "*/*" not in accept_header
-                    and format_param not in ("b64", "base64")
+                    user_agent.startswith("mozilla")
+                    and "happ" not in user_agent
+                    and "sing-box" not in user_agent
+                    and format_param != "json"
+                    and "application/json" not in accept_header
                 )
             )
 
-            if is_json:
+            if not is_base64:
                 profile_data = build_json_profile(cfg)
                 response_bytes = json.dumps(profile_data, indent=2, ensure_ascii=False).encode("utf-8")
 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Profile-Title", "Votex")
+                self.send_header("Profile-Title", "Votex / JSON")
                 self.send_header("Profile-Type", "xray")
                 self.send_header("Profile-Update-Interval", "24")
                 self.send_header("Profile-Test-Url", "http://cp.cloudflare.com/generate_204")
@@ -1363,6 +1343,7 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
                     "upload=0; download=0; total=1073741824000; expire=0",
                 )
                 self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Expose-Headers", "*")
                 self.send_header("Content-Length", str(len(response_bytes)))
                 self.end_headers()
                 if not head_only:
@@ -1382,6 +1363,7 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
                     "upload=0; download=0; total=1073741824000; expire=0",
                 )
                 self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Expose-Headers", "*")
                 self.send_header("Content-Length", str(len(response_bytes)))
                 self.end_headers()
                 if not head_only:
