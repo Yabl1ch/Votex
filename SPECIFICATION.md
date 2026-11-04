@@ -58,7 +58,7 @@ Votex выступает **умным оркестратором и генера
 │  ├── Inbound 1: VLESS Reality + XTLS-Vision (Port 20443)               │
 │  ├── Inbound 2: VLESS Reality + SplitHTTP/xhttp (Port 2053) [Anti-DPI] │
 │  ├── Inbound 3: VLESS Reality + gRPC (Port 8443)                       │
-│  ├── Inbound 4: Hysteria 2 UDP/QUIC (Port 2083) [Low-Latency Gaming]   │
+│  ├── Inbound 4: Hysteria 2 UDP 443 + TCP Ping (Port 443) [Gaming/QUIC] │
 │  └── Inbound 5: Shadowsocks-2022 blake3-aes-128-gcm (Port 2088)        │
 ├────────────────────────────────────────────────────────────────────────┤
 │  Stealth Micro-Subscription Endpoint (HTTP/HTTPS Token Guarded):       │
@@ -103,8 +103,10 @@ Votex выступает **умным оркестратором и генера
    - Порт `20443/tcp` — VLESS Reality Vision.
    - Порт `2053/tcp` — VLESS Reality SplitHTTP (xhttp).
    - Порт `8443/tcp` — VLESS Reality gRPC.
-   - Порт `2083/udp` — Hysteria 2 (UDP/QUIC).
-   - Порт `2088/tcp` — Shadowsocks-2022.
+   - Порт `443/udp` — Hysteria 2 (UDP/QUIC, высокоскоростной протокол для гейминга и обхода цензуры).
+   - Порт `443/tcp` — Hysteria 2 TCP Ping (Xray dokodemo-door: мгновенный SYN-ACK на клиентский TCP-пинг).
+   - Порты `2083/udp` и `2083/tcp` — Legacy Hysteria 2 (iptables REDIRECT на 443/udp и dokodemo-door fallback).
+   - Порт `2088/tcp` и `2088/udp` — Shadowsocks-2022.
    - Порт `18080/tcp` — Локальный порт сервиса подписки (проксируется или открывается с токенизированным путем).
 3. Все остальные порты закрыты (режим Stealth). Сканеры портов типа Nmap получают `closed` / `filtered`.
 
@@ -151,15 +153,42 @@ net.ipv4.tcp_mtu_probing = 1
 | **VLESS Reality Vision** | TCP + XTLS | 20443 | `addons.mozilla.org` | Основной высокоскоростной протокол с нулевым оверхедом и прямым шифрованием |
 | **VLESS Reality SplitHTTP (xhttp)** | HTTP/2-3 Chunks | 2053 | `addons.mozilla.org` | Ультимативный обход блокировок ТСПУ: разбиение трафика на псевдо-POST потоки со случайным паддингом |
 | **VLESS Reality gRPC** | HTTP/2 gRPC | 8443 | `addons.mozilla.org` | Альтернативный мультиплексированный канал при шейпинге TCP |
-| **Hysteria 2** | UDP / QUIC | 2083 | Кастомный Salamander | Низкий пинг для онлайн-игр, звонков Telegram/Discord, стабильность на потерях пакетов до 30% |
+| **Hysteria 2** | UDP / QUIC (+ TCP Ping) | 443 (Legacy 2083) | TLS (Self-signed + pinSHA256) | Низкий пинг для онлайн-игр, звонков Telegram/Discord, обход блокировок произвольных UDP-портов ТСПУ (порт UDP 443) |
 | **Shadowsocks-2022** | TCP/UDP | 2088 | `blake3-aes-128-gcm` | Проверенный резервный протокол |
 
 ### 4.2. Умный узел автоматического переключения (Auto-Select Node)
 В выдаваемой подписке формируется специальный виртуальный узел:
 - **Название:** `Votex | Автовыбор (Самый быстрый и безопасный)`
-- **Механизм работы:** Клиентский движок (Xray/Sing-box через секцию `burstObservatory` или `url-test`) каждые 60 секунд отправляет тестовый пинг на `http://www.gstatic.com/generate_204` через все 5 протоколов.
+- **Механизм работы:** Клиентский движок (Xray/Sing-box через секцию `burstObservatory` или `url-test`) каждые 60 секунд отправляет тестовый пинг на `http://cp.cloudflare.com/generate_204` через все 5 протоколов (эндпоинт Cloudflare гарантирует отсутствие блокировок ТСПУ и таймаутов на Windows).
 - Трафик направляется в узел с наименьшей задержкой и нулевой потерей пакетов.
 - В случае, если ТСПУ начинает блокировать порт или протокол (например, Reality Vision), происходит **мгновенное и бесшовное переключение** на SplitHTTP или Hysteria 2 без разрыва пользовательских сессий.
+
+### 4.4. Архитектура Hysteria 2 Dual-Stack (UDP 443 + TCP Ping) и TLS Pinning
+Провайдеры и ТСПУ в РФ массово глушат или замедляют произвольные UDP-порты (8443, 2083). Единственный порт, на котором UDP/QUIC не подвергается блокировкам — это **UDP 443** (легитимный трафик HTTP/3 / QUIC).
+
+Для обеспечения 100% совместимости с клиентскими приложениями (Happ на iOS/Android/Windows, v2rayN, sing-box, Nekoray) реализована двухстековая архитектура:
+1. **Сетевая изоляция стеков Linux:** В сетевом стеке ядра Linux протоколы TCP и UDP полностью независимы.
+   - **`0.0.0.0:443/udp`:** Слушает демон Hysteria 2 (`listen: :443`), обрабатывая весь реальный высокоскоростной туннельный трафик.
+   - **`0.0.0.0:443/tcp`:** Слушает входящий инбаунд Xray-core `dokodemo-door`, перенаправляющий запросы на локальный порт `127.0.0.1:18080`.
+2. **Механика клиентского пинга (TCP SYN):**
+   - Клиентские приложения при проверке задержки списка серверов выполняют быстрый **TCP Ping** (отправка SYN-пакета на хост и порт из URI).
+   - Поскольку Hysteria 2 работает строго по UDP, отсутствие слушателя TCP на порту 443 приводило к отбрасыванию пакетов фаерволом и полному таймауту узла на всех платформах.
+   - Xray `dokodemo-door` на TCP 443 мгновенно отвечает клиенту SYN-ACK, обеспечивая зелёную задержку (< 30 мс) во всех клиентах.
+3. **Безопасность TLS и Self-Signed Сертификаты:**
+   - Для Hysteria 2 генерируется самоподписанный TLS-сертификат (с расширением `subjectAltName=DNS:${REALITY_SNI},IP:${SERVER_IP}`) и надежным RSA-fallback.
+   - В ссылку подписки передается хэш отпечатка: `&pinSHA256=${HY_CERT_SHA256}` в связке с `insecure=1&allowInsecure=1`. Это позволяет клиентам sing-box и Happ выполнять строгий certificate pinning без системных предупреждений о недоверенном CA.
+   - Файлам сертификатов назначаются корректные права чтения (`chmod 644 /etc/hysteria/server.crt` и `server.key`).
+4. **Межсетевой экран:** В UFW открыты оба протокола: `ufw allow 443/udp` и `ufw allow 443/tcp`.
+
+### 4.5. Стандартизация узла «Автовыбор» и устранение таймаута на ПК (Happ Windows)
+1. **Диагностика первопричины:**
+   - В десктопной версии Happ на Windows при тестировании группы «Автовыбор» клиент производит замер HTTP Real Delay.
+   - При отсутствии явного заголовка `Profile-Test-Url` клиент обращался к дефолтному адресу `http://www.gstatic.com/generate_204`, который на территории РФ подвергается жесткому замедлению и сбросу соединений со стороны ТСПУ.
+2. **Решение:**
+   - Сервер подписки возвращает обязательный заголовок: `Profile-Test-Url: http://cp.cloudflare.com/generate_204`.
+   - Точки замера `burstObservatory` и `observatory` в JSON-профиле синхронизированы на `http://cp.cloudflare.com/generate_204`.
+   - В микросервисе Votex развернут прямой эндпоинт `/generate_204` с мгновенным кодом ответа `204 No Content`.
+   - Первый узел подписки стандартизирован под тегом `#Votex-Auto-Select` на базе стабильного порта Reality Vision 20443.
 
 ### 4.3. Фрагментация пакетов TLS (Client Fragmentation)
 Для подавления DPI-сигнатур ТСПУ (которые анализируют длину пакета ClientHello при рукопожатии TLS) в подписку внедряются директивы фрагментации:
@@ -230,8 +259,10 @@ net.ipv4.tcp_mtu_probing = 1
   - При запросе с заголовком Happ/v2rayN/sing-box или параметром `?format=json`: возвращает полноценный валидированный JSON-профиль со всеми inbounds, outbounds, DNS-серверами, правилами smart-routing и фрагментацией.
   - При стандартном HTTP GET запросе: возвращает Base64-подписку с мета-заголовками:
     - `Subscription-Userinfo: upload=0; download=0; total=1073741824000; expire=0`
-    - `Profile-Title: Votex Private Cloud`
+    - `Profile-Title: Votex`
     - `Profile-Update-Interval: 24`
+    - `Profile-Test-Url: http://cp.cloudflare.com/generate_204`
+    - `Profile-Web-Page-Url: https://github.com/Yabl1ch/Votex`
 
 ---
 

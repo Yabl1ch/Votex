@@ -249,6 +249,8 @@ class TestSubscriptionHttpServer(unittest.TestCase):
             self.assertEqual(resp.status, 200)
             self.assertEqual(resp.headers.get("Profile-Title"), "Votex")
             self.assertEqual(resp.headers.get("Profile-Update-Interval"), "24")
+            self.assertEqual(resp.headers.get("Profile-Test-Url"), "http://cp.cloudflare.com/generate_204")
+            self.assertEqual(resp.headers.get("Profile-Web-Page-Url"), "https://github.com/Yabl1ch/Votex")
             self.assertIn("upload=0;", resp.headers.get("Subscription-Userinfo"))
             body = resp.read().decode("utf-8")
             decoded = base64.b64decode(body.encode("utf-8")).decode("utf-8")
@@ -285,6 +287,11 @@ class TestSubscriptionHttpServer(unittest.TestCase):
             self.assertIn("#Votex-Reality-gRPC", lines[3])
             self.assertIn("#Votex-Hysteria2-Gaming", lines[4])
             self.assertIn("#Votex-Shadowsocks-2022", lines[5])
+
+    def test_204_generate_204_endpoint(self):
+        url = f"http://127.0.0.1:{self.port}/generate_204"
+        with urllib.request.urlopen(url) as resp:
+            self.assertEqual(resp.status, 204)
 
     def test_200_system_stats_endpoint(self):
         url = f"http://127.0.0.1:{self.port}/stats/{self.token}"

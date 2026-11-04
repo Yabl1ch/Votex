@@ -617,6 +617,7 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "*")
+        self.send_header("Access-Control-Expose-Headers", "*")
         self.end_headers()
 
     def do_HEAD(self) -> None:
@@ -633,6 +634,14 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
             parsed = urllib.parse.urlparse(self.path)
             clean_path = parsed.path.rstrip("/")
             query = urllib.parse.parse_qs(parsed.query)
+
+            # Direct generate_204 endpoint for client latency testing
+            if clean_path in ("/generate_204", "/gen_204"):
+                self.send_response(204)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                return
 
             # Live system stats endpoint for Dashboard
             is_stats_req = (
@@ -688,6 +697,8 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
                 self.send_header("Profile-Title", "Votex")
                 self.send_header("Profile-Type", "xray")
                 self.send_header("Profile-Update-Interval", "24")
+                self.send_header("Profile-Test-Url", "http://cp.cloudflare.com/generate_204")
+                self.send_header("Profile-Web-Page-Url", "https://github.com/Yabl1ch/Votex")
                 self.send_header(
                     "Subscription-Userinfo",
                     "upload=0; download=0; total=1073741824000; expire=0",
@@ -705,6 +716,8 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.send_header("Profile-Title", "Votex")
                 self.send_header("Profile-Update-Interval", "24")
+                self.send_header("Profile-Test-Url", "http://cp.cloudflare.com/generate_204")
+                self.send_header("Profile-Web-Page-Url", "https://github.com/Yabl1ch/Votex")
                 self.send_header(
                     "Subscription-Userinfo",
                     "upload=0; download=0; total=1073741824000; expire=0",
