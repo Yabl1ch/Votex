@@ -209,7 +209,7 @@ export const ReportsPage: React.FC = () => {
               Все протоколы объединены в один общий subscription профиль
             </span>
             <span className="font-mono text-[#4ADE80] font-medium">
-              {hasVps ? "Auto-Fallback ON" : "Ожидание настройки"}
+              {hasVps ? "5 протоколов активны" : "Ожидание настройки"}
             </span>
           </div>
         </BentoCard>
