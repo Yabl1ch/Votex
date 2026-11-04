@@ -75,7 +75,7 @@ export interface AppState {
 
 export const initialFirewallPorts: FirewallPort[] = [
   { port: 22, proto: "tcp", service: "SSH Remote Shell", status: "ALLOW", comment: "Удаленное администрирование" },
-  { port: 20443, proto: "tcp", service: "VLESS Reality Auto & Vision", status: "ALLOW", comment: "Основной TLS 1.3 туннель и авто-подбор" },
+  { port: 20443, proto: "tcp", service: "VLESS Reality Vision", status: "ALLOW", comment: "Основной TLS 1.3 туннель" },
   { port: 2053, proto: "tcp", service: "SplitHTTP (xhttp)", status: "ALLOW", comment: "Обход жестких белых списков" },
   { port: 8443, proto: "tcp/udp", service: "Hysteria 2 (QUIC) & gRPC", status: "ALLOW", comment: "Низкий пинг для игр и мультиплекс" },
   { port: 2083, proto: "tcp/udp", service: "Hysteria 2 (Legacy Redirect)", status: "ALLOW", comment: "Резервный редирект для старых клиентов" },

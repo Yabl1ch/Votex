@@ -150,7 +150,7 @@ ufw default deny incoming > /dev/null 2>&1 || true
 ufw default allow outgoing > /dev/null 2>&1 || true
 ufw allow "${SSH_PORT}/tcp" comment 'Votex SSH' > /dev/null 2>&1 || true
 [[ "${SSH_PORT}" != "22" ]] && ufw allow 22/tcp comment 'Votex Default SSH' > /dev/null 2>&1 || true
-ufw allow 20443/tcp comment 'Votex VLESS Reality Vision & Auto' > /dev/null 2>&1 || true
+ufw allow 20443/tcp comment 'Votex VLESS Reality Vision' > /dev/null 2>&1 || true
 ufw allow 2053/tcp comment 'Votex VLESS Reality SplitHTTP' > /dev/null 2>&1 || true
 ufw allow 8443/tcp comment 'Votex Reality gRPC & Hysteria TCP Ping' > /dev/null 2>&1 || true
 ufw allow 8443/udp comment 'Votex Hysteria 2 UDP' > /dev/null 2>&1 || true
@@ -293,36 +293,6 @@ cat << EOF > /usr/local/etc/xray/config.json
     ]
   },
   "inbounds": [
-    {
-      "tag": "vless-auto",
-      "port": 20444,
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "${CLIENT_UUID}",
-            "flow": "xtls-rprx-vision"
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "addons.mozilla.org:443",
-          "xver": 0,
-          "serverNames": ["addons.mozilla.org"],
-          "privateKey": "${REALITY_PRIVATE_KEY}",
-          "shortIds": ["${REALITY_SHORT_ID}"]
-        }
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls", "quic"]
-      }
-    },
     {
       "tag": "vless-vision",
       "port": 20443,
@@ -582,7 +552,7 @@ def load_server_config(config_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]
 
 
 def build_base64_subscription(cfg: Dict[str, Any]) -> str:
-    """Generate Base64 encoded subscription link list with 6 protocols (Auto + 5 individual)."""
+    """Generate Base64 encoded subscription link list with 5 protocols."""
     server_ip = cfg.get("server_ip", "127.0.0.1")
     uuid = cfg.get("client_uuid", "")
     pub_key = cfg.get("reality_public_key", "")
@@ -595,16 +565,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     ss_auth_str = f"2022-blake3-aes-128-gcm:{ss_pass}"
     ss_auth_b64 = base64.urlsafe_b64encode(ss_auth_str.encode("utf-8")).decode("utf-8").rstrip("=")
 
-    cert_sha256 = cfg.get("hy_cert_sha256", "")
-    hy_pin_param = f"&pinSHA256={cert_sha256}" if cert_sha256 else ""
-
     links: List[str] = [
-        (
-            f"vless://{uuid}@{server_ip}:20443"
-            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
-            f"&type=tcp&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid={short_id}"
-            f"#Votex-auto"
-        ),
         (
             f"vless://{uuid}@{server_ip}:20443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
@@ -626,7 +587,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
         ),
         (
             f"hysteria2://{hy_pass}@{server_ip}:8443"
-            f"/?insecure=1&sni=addons.mozilla.org{hy_pin_param}"
+            f"?insecure=1&sni=addons.mozilla.org"
             f"#Votex-Hysteria2-Gaming"
         ),
         (
@@ -744,7 +705,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
     ]
 
     profile: Dict[str, Any] = {
-        "remarks": "Votex-auto",
+        "remarks": "Votex",
         "burstObservatory": {
             "pingConfig": {
                 "destination": "http://www.gstatic.com/generate_204",
@@ -753,7 +714,6 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 "timeout": "6s",
             },
             "subjectSelector": [
-                "auto",
                 "vision",
                 "xhttp",
                 "grpc",
@@ -816,42 +776,6 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
             },
         ],
         "outbounds": [
-            {
-                "protocol": "vless",
-                "tag": "auto",
-                "settings": {
-                    "vnext": [
-                        {
-                            "address": server_ip,
-                            "port": 20443,
-                            "users": [
-                                {
-                                    "id": uuid,
-                                    "flow": "xtls-rprx-vision",
-                                    "encryption": "none",
-                                }
-                            ],
-                        }
-                    ]
-                },
-                "streamSettings": {
-                    "network": "tcp",
-                    "security": "reality",
-                    "realitySettings": {
-                        "fingerprint": "firefox",
-                        "publicKey": pub_key,
-                        "serverName": "addons.mozilla.org",
-                        "shortId": short_id,
-                        "spiderX": "/",
-                    },
-                    "tcpSettings": {
-                        "header": {"type": "none"}
-                    },
-                    "sockopt": {
-                        "dialerProxy": "fragment-out"
-                    },
-                },
-            },
             {
                 "protocol": "vless",
                 "tag": "vision",
@@ -989,22 +913,13 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                         "auth": hy_pass,
                         "version": 2,
                     },
-                    "tlsSettings": (
-                        {
-                            "alpn": ["h3"],
-                            "enableSessionResumption": False,
-                            "fingerprint": "firefox",
-                            "serverName": "addons.mozilla.org",
-                            "pinnedPeerCertSha256": cert_sha256,
-                        }
-                        if cert_sha256
-                        else {
-                            "alpn": ["h3"],
-                            "enableSessionResumption": False,
-                            "fingerprint": "firefox",
-                            "serverName": "addons.mozilla.org",
-                        }
-                    ),
+                    "tlsSettings": {
+                        "alpn": ["h3"],
+                        "enableSessionResumption": False,
+                        "fingerprint": "firefox",
+                        "serverName": "addons.mozilla.org",
+                        "allowInsecure": True,
+                    },
                 },
             },
             {
@@ -1046,7 +961,6 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 {
                     "tag": "VotexBalancer",
                     "selector": [
-                        "auto",
                         "vision",
                         "xhttp",
                         "grpc",
@@ -1427,7 +1341,7 @@ echo -e "${CYAN}Фаервол UFW:            ${NC}Включен (Все не�
 echo -e "${CYAN}TCP BBR Ускорение:      ${NC}Включено (net.core.default_qdisc = fq)"
 echo -e "${CYAN}Задержка (Ping):        ${NC}${PING_MS} ms"
 echo -e "${CYAN}Скорость канала:        ${NC}${SPEED_MBPS} Mbps"
-echo -e "${CYAN}Протоколы All-In-One:   ${NC}Auto (20443), Vision (20443), SplitHTTP (2053), gRPC (8443), Hysteria2 (8443), SS-2022 (2088)"
+echo -e "${CYAN}Протоколы All-In-One:   ${NC}Vision (20443), SplitHTTP (2053), gRPC (8443), Hysteria2 (8443), SS-2022 (2088)"
 echo -e "${CYAN}Маршрутизация РФ:       ${NC}Direct (.ru, .su, Банки, Госуслуги, Ozon)"
 echo -e "${CYAN}Разблокировка ИИ:       ${NC}Proxy (Gemini, Claude, ChatGPT, YouTube, Discord)"
 echo -e "${CYAN}Анти-DPI защита:        ${NC}TLS Packet Fragmentation (1-3 packets, 100-200 len)"
