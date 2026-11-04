@@ -59,12 +59,14 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     ss_auth_str = f"2022-blake3-aes-128-gcm:{ss_pass}"
     ss_auth_b64 = base64.urlsafe_b64encode(ss_auth_str.encode("utf-8")).decode("utf-8").rstrip("=")
 
+    pin_param = f"&pinSHA256={cert_sha256}" if cert_sha256 else ""
+
     links: List[str] = [
         (
             f"vless://{uuid}@{server_ip}:20443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
             f"&type=tcp&flow=xtls-rprx-vision&sni={sni}&sid={short_id}"
-            f"#Votex-Автовыбор-(Самый-быстрый)"
+            f"#Votex-Auto-Select"
         ),
         (
             f"vless://{uuid}@{server_ip}:20443"
@@ -87,7 +89,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
         ),
         (
             f"hysteria2://{hy_pass}@{server_ip}:443/"
-            f"?insecure=1&allowInsecure=1&sni={sni}"
+            f"?insecure=1&allowInsecure=1&sni={sni}{pin_param}"
             f"#Votex-Hysteria2-Gaming"
         ),
         (
@@ -209,7 +211,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "remarks": "Votex",
         "burstObservatory": {
             "pingConfig": {
-                "destination": "http://www.gstatic.com/generate_204",
+                "destination": "http://cp.cloudflare.com/generate_204",
                 "interval": "1m",
                 "sampling": 1,
                 "timeout": "6s",
@@ -223,7 +225,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
             ],
         },
         "observatory": {
-            "probeUrl": "http://www.gstatic.com/generate_204",
+            "probeUrl": "http://cp.cloudflare.com/generate_204",
             "probeInterval": "1m",
             "enableConcurrency": True,
         },
@@ -442,6 +444,22 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                         }
                     ]
                 },
+            },
+            {
+                "protocol": "freedom",
+                "type": "urltest",
+                "tag": "Auto-Select",
+                "settings": {},
+                "outbounds": [
+                    "vision",
+                    "xhttp",
+                    "grpc",
+                    "hy2",
+                    "ss2022",
+                ],
+                "url": "http://cp.cloudflare.com/generate_204",
+                "interval": "1m",
+                "tolerance": 50,
             },
             {
                 "protocol": "freedom",

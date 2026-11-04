@@ -77,6 +77,7 @@ rollback_installation() {
     ufw delete allow 20443/tcp >/dev/null 2>&1 || true
     ufw delete allow 2053/tcp >/dev/null 2>&1 || true
     ufw delete allow 8443/tcp >/dev/null 2>&1 || true
+    ufw delete allow 443/tcp >/dev/null 2>&1 || true
     ufw delete allow 443/udp >/dev/null 2>&1 || true
     ufw delete allow 8443/udp >/dev/null 2>&1 || true
     ufw delete allow 2083/udp >/dev/null 2>&1 || true
@@ -177,7 +178,7 @@ log_info "Используемый порт администрирования S
 
 # Port conflict detection and auto-resolution
 check_and_resolve_port_conflicts() {
-    local votex_ports=(20443 2053 8443 2088 18080)
+    local votex_ports=(20443 2053 8443 443 2088 18080)
     log_info "Проверка доступности рабочих портов Votex..."
     for p in "${votex_ports[@]}"; do
         if ss -tuln 2>/dev/null | grep -q ":${p}\b"; then
@@ -309,7 +310,8 @@ ufw allow "${SSH_PORT}/tcp" comment 'Votex SSH' > /dev/null 2>&1 || true
 [[ "${SSH_PORT}" != "22" ]] && ufw allow 22/tcp comment 'Votex Default SSH' > /dev/null 2>&1 || true
 ufw allow 20443/tcp comment 'Votex VLESS Reality Vision' > /dev/null 2>&1 || true
 ufw allow 2053/tcp comment 'Votex VLESS Reality SplitHTTP' > /dev/null 2>&1 || true
-ufw allow 8443/tcp comment 'Votex Reality gRPC & Hysteria TCP Ping' > /dev/null 2>&1 || true
+ufw allow 8443/tcp comment 'Votex Reality gRPC' > /dev/null 2>&1 || true
+ufw allow 443/tcp comment 'Votex Hysteria 2 TCP Ping' > /dev/null 2>&1 || true
 ufw allow 443/udp comment 'Votex Hysteria 2 UDP' > /dev/null 2>&1 || true
 ufw allow 8443/udp comment 'Votex Hysteria 2 UDP Legacy' > /dev/null 2>&1 || true
 ufw allow 2083/udp comment 'Votex Hysteria 2 UDP Legacy' > /dev/null 2>&1 || true
@@ -413,6 +415,10 @@ openssl ecparam -name prime256v1 -genkey -noout -out /etc/hysteria/server.key > 
 openssl req -new -x509 -key /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 \
   -subj "/CN=${REALITY_SNI}" \
   -addext "subjectAltName=DNS:${REALITY_SNI},DNS:${SERVER_IP_DASH}.sslip.io,IP:${SERVER_IP}" > /dev/null 2>&1 || true
+if [[ ! -s /etc/hysteria/server.key || ! -s /etc/hysteria/server.crt ]]; then
+  openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 \
+    -subj "/CN=${REALITY_SNI}" > /dev/null 2>&1 || true
+fi
 HY_CERT_SHA256=$(openssl x509 -in /etc/hysteria/server.crt -outform der 2>/dev/null | sha256sum 2>/dev/null | awk '{print $1}' || echo "")
 
 # 5.1. Generate Xray Server Configuration (/usr/local/etc/xray/config.json)
@@ -536,6 +542,16 @@ cat << EOF > /usr/local/etc/xray/config.json
     },
     {
       "tag": "hysteria-tcp-ping",
+      "port": 443,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 18080,
+        "network": "tcp"
+      }
+    },
+    {
+      "tag": "hysteria-tcp-ping-legacy",
       "port": 2083,
       "protocol": "dokodemo-door",
       "settings": {
@@ -609,7 +625,7 @@ systemctl enable --now hysteria-server > /dev/null 2>&1 || systemctl restart hys
 
 sleep 2
 if systemctl is-active --quiet xray; then
-    log_info "Xray-core успешно запущен (порты 20443, 2053, 8443, 2083-TCP, 2088 активны)"
+    log_info "Xray-core успешно запущен (порты 20443, 2053, 8443, 443-TCP, 2083-TCP, 2088 активны)"
 else
     log_warn "Xray не запустился. Диагностика службы:"
     journalctl -u xray -n 12 --no-pager 2>&1 || true
@@ -702,12 +718,14 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     ss_auth_str = f"2022-blake3-aes-128-gcm:{ss_pass}"
     ss_auth_b64 = base64.urlsafe_b64encode(ss_auth_str.encode("utf-8")).decode("utf-8").rstrip("=")
 
+    pin_param = f"&pinSHA256={cert_sha256}" if cert_sha256 else ""
+
     links: List[str] = [
         (
             f"vless://{uuid}@{server_ip}:20443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
             f"&type=tcp&flow=xtls-rprx-vision&sni={sni}&sid={short_id}"
-            f"#Votex-Автовыбор-(Самый-быстрый)"
+            f"#Votex-Auto-Select"
         ),
         (
             f"vless://{uuid}@{server_ip}:20443"
@@ -730,7 +748,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
         ),
         (
             f"hysteria2://{hy_pass}@{server_ip}:443/"
-            f"?insecure=1&allowInsecure=1&sni={sni}"
+            f"?insecure=1&allowInsecure=1&sni={sni}{pin_param}"
             f"#Votex-Hysteria2-Gaming"
         ),
         (
@@ -852,7 +870,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "remarks": "Votex",
         "burstObservatory": {
             "pingConfig": {
-                "destination": "http://www.gstatic.com/generate_204",
+                "destination": "http://cp.cloudflare.com/generate_204",
                 "interval": "1m",
                 "sampling": 1,
                 "timeout": "6s",
@@ -866,7 +884,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
             ],
         },
         "observatory": {
-            "probeUrl": "http://www.gstatic.com/generate_204",
+            "probeUrl": "http://cp.cloudflare.com/generate_204",
             "probeInterval": "1m",
             "enableConcurrency": True,
         },
@@ -1085,6 +1103,22 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                         }
                     ]
                 },
+            },
+            {
+                "protocol": "freedom",
+                "type": "urltest",
+                "tag": "Auto-Select",
+                "settings": {},
+                "outbounds": [
+                    "vision",
+                    "xhttp",
+                    "grpc",
+                    "hy2",
+                    "ss2022",
+                ],
+                "url": "http://cp.cloudflare.com/generate_204",
+                "interval": "1m",
+                "tolerance": 50,
             },
             {
                 "protocol": "freedom",

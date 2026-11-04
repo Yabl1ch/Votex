@@ -52,7 +52,7 @@ class TestSubscriptionService(unittest.TestCase):
         self.assertIn("flow=xtls-rprx-vision", auto_link)
         self.assertIn("sni=addons.mozilla.org", auto_link)
         self.assertIn("e8a93ef0-5b74-4b53-90d2-5b91b8f17bc1", auto_link)
-        self.assertIn("Votex-Автовыбор-(Самый-быстрый)", auto_link)
+        self.assertIn("Votex-Auto-Select", auto_link)
 
         # Check 2: Vision link
         vision_link = links[1]
@@ -87,6 +87,12 @@ class TestSubscriptionService(unittest.TestCase):
         self.assertIn("allowInsecure=1", hy2_link)
         self.assertIn("Votex-Hysteria2-Gaming", hy2_link)
 
+        # Check Hysteria 2 link with pinSHA256
+        cfg_with_pin = dict(self.sample_config, hy_cert_sha256="abcd1234ef567890")
+        b64_with_pin = sub_service.build_base64_subscription(cfg_with_pin)
+        links_with_pin = base64.b64decode(b64_with_pin.encode("utf-8")).decode("utf-8").splitlines()
+        self.assertIn("pinSHA256=abcd1234ef567890", links_with_pin[4])
+
         # Check 6: Shadowsocks-2022 link
         ss_link = links[5]
         self.assertTrue(ss_link.startswith("ss://"))
@@ -118,7 +124,7 @@ class TestSubscriptionService(unittest.TestCase):
         # 1. Burst Observatory
         self.assertIn("burstObservatory", profile)
         obs = profile["burstObservatory"]
-        self.assertEqual(obs["pingConfig"]["destination"], "http://www.gstatic.com/generate_204")
+        self.assertEqual(obs["pingConfig"]["destination"], "http://cp.cloudflare.com/generate_204")
         self.assertListEqual(obs["subjectSelector"], ["vision", "xhttp", "grpc", "hy2", "ss2022"])
 
         # 2. DNS
@@ -152,6 +158,11 @@ class TestSubscriptionService(unittest.TestCase):
         self.assertTrue(outbound_map["hy2"]["streamSettings"]["tlsSettings"]["insecure"])
         self.assertTrue(outbound_map["hy2"]["streamSettings"]["tlsSettings"]["allowInsecure"])
         self.assertIn("ss2022", outbound_map)
+        self.assertIn("Auto-Select", outbound_map)
+        auto_ob = outbound_map["Auto-Select"]
+        self.assertEqual(auto_ob["type"], "urltest")
+        self.assertEqual(auto_ob["url"], "http://cp.cloudflare.com/generate_204")
+        self.assertListEqual(auto_ob["outbounds"], ["vision", "xhttp", "grpc", "hy2", "ss2022"])
         self.assertIn("fragment-out", outbound_map)
         self.assertIn("direct", outbound_map)
         self.assertIn("block", outbound_map)
@@ -268,7 +279,7 @@ class TestSubscriptionHttpServer(unittest.TestCase):
             decoded = base64.b64decode(body.encode("utf-8")).decode("utf-8")
             lines = [l.strip() for l in decoded.splitlines() if l.strip()]
             self.assertEqual(len(lines), 6, f"Expected 6 protocol configs for Happ, got {len(lines)}")
-            self.assertIn("#Votex-Автовыбор-(Самый-быстрый)", lines[0])
+            self.assertIn("#Votex-Auto-Select", lines[0])
             self.assertIn("#Votex-Reality-Vision", lines[1])
             self.assertIn("#Votex-SplitHTTP-AntiDPI", lines[2])
             self.assertIn("#Votex-Reality-gRPC", lines[3])
