@@ -519,6 +519,388 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
     return profile
 
 
+def build_json_array_subscription(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Generate an array of 5 self-contained Xray JSON client configs (one per protocol).
+    When imported into Happ, each item appears as a separate protocol node with
+    native '/ JSON' Direct Passthrough, embedded Yandex/Cloudflare DNS, and Smart Routing.
+    """
+    server_ip = cfg.get("server_ip", "127.0.0.1")
+    uuid = cfg.get("client_uuid", "")
+    pub_key = cfg.get("reality_public_key", "")
+    short_id = cfg.get("reality_short_id", "")
+    hy_pass = cfg.get("hy_password", "")
+    ss_pass = cfg.get("ss_password", "")
+    cert_sha256 = cfg.get("hy_cert_sha256", "")
+    sni = cfg.get("reality_sni", "addons.mozilla.org")
+
+    # Clean cert sha256 to colon-separated uppercase hex for Xray pinnedPeerCertSha256
+    clean_sha = cert_sha256.replace(":", "").replace(" ", "").upper()
+    pinned_sha = (
+        ":".join(clean_sha[i : i + 2] for i in range(0, len(clean_sha), 2))
+        if len(clean_sha) == 64
+        else cert_sha256
+    )
+
+    common_dns = {
+        "queryStrategy": "UseIP",
+        "servers": [
+            {
+                "address": "77.88.8.8",
+                "domains": [
+                    "geosite:category-ru",
+                    "domain:ozon.ru",
+                    "domain:ozon.com",
+                    "domain:ozonusercontent.com",
+                    "domain:wildberries.ru",
+                    "domain:wb.ru",
+                    "domain:gosuslugi.ru",
+                    "domain:sberbank.ru",
+                    "domain:sber.ru",
+                    "domain:tbank.ru",
+                    "domain:tinkoff.ru",
+                    "domain:kinopoisk.ru",
+                    "domain:yandex.ru",
+                    "domain:ya.ru",
+                    "domain:vk.com",
+                    "domain:mail.ru",
+                    "domain:avito.ru",
+                    "domain:2gis.ru",
+                    "domain:rutube.ru",
+                    "domain:dzen.ru",
+                    "regexp:^(.+\.)?ru$",
+                    "regexp:^(.+\.)?su$",
+                    "regexp:^(.+\.)?xn--p1ai$",
+                ],
+                "skipFallback": True,
+            },
+            "1.1.1.1",
+            "8.8.8.8",
+        ],
+    }
+
+    common_inbounds = [
+        {
+            "tag": "socks",
+            "port": 10808,
+            "listen": "127.0.0.1",
+            "protocol": "socks",
+            "settings": {
+                "udp": True,
+                "auth": "noauth",
+            },
+            "sniffing": {
+                "enabled": True,
+                "routeOnly": True,
+                "destOverride": ["http", "tls", "quic"],
+            },
+        },
+        {
+            "tag": "http",
+            "port": 10809,
+            "listen": "127.0.0.1",
+            "protocol": "http",
+            "settings": {
+                "allowTransparent": False,
+            },
+            "sniffing": {
+                "enabled": True,
+                "routeOnly": True,
+                "destOverride": ["http", "tls", "quic"],
+            },
+        },
+    ]
+
+    common_routing = {
+        "domainMatcher": "hybrid",
+        "domainStrategy": "IPIfNonMatch",
+        "rules": [
+            {
+                "type": "field",
+                "outboundTag": "block",
+                "protocol": ["bittorrent"],
+            },
+            {
+                "type": "field",
+                "outboundTag": "direct",
+                "domain": [
+                    "geosite:category-ru",
+                    "domain:ozon.ru",
+                    "domain:ozon.com",
+                    "domain:ozonusercontent.com",
+                    "domain:wildberries.ru",
+                    "domain:wb.ru",
+                    "domain:gosuslugi.ru",
+                    "domain:sberbank.ru",
+                    "domain:sber.ru",
+                    "domain:tbank.ru",
+                    "domain:tinkoff.ru",
+                    "domain:kinopoisk.ru",
+                    "domain:yandex.ru",
+                    "domain:ya.ru",
+                    "domain:vk.com",
+                    "domain:mail.ru",
+                    "domain:avito.ru",
+                    "domain:2gis.ru",
+                    "domain:rutube.ru",
+                    "domain:dzen.ru",
+                    "domain:cbr.ru",
+                    "domain:vtb.ru",
+                    "domain:alfabank.ru",
+                    "domain:gazprombank.ru",
+                    "domain:domclick.ru",
+                    "domain:hh.ru",
+                    "domain:dns-shop.ru",
+                    "domain:mvideo.ru",
+                    "domain:eldorado.ru",
+                    "domain:citilink.ru",
+                    "domain:samokat.ru",
+                    "domain:kion.ru",
+                    "domain:okko.tv",
+                    "domain:ivi.ru",
+                    "domain:premier.one",
+                    "domain:matchtv.ru",
+                    "domain:rbc.ru",
+                    "domain:lenta.ru",
+                    "domain:ria.ru",
+                    "domain:tass.ru",
+                    "domain:kp.ru",
+                    "regexp:^(.+\.)?ru$",
+                    "regexp:^(.+\.)?su$",
+                    "regexp:^(.+\.)?xn--p1ai$",
+                ],
+            },
+            {
+                "type": "field",
+                "outboundTag": "direct",
+                "ip": [
+                    "geoip:ru",
+                    "geoip:private",
+                    "77.88.8.8",
+                    server_ip,
+                ],
+            },
+            {
+                "type": "field",
+                "outboundTag": "proxy",
+                "network": "tcp,udp",
+            },
+        ],
+    }
+
+    fragment_outbound = {
+        "protocol": "freedom",
+        "tag": "fragment-out",
+        "settings": {
+            "fragment": {
+                "packets": "1-3",
+                "length": "100-200",
+                "interval": "10-20",
+            }
+        },
+    }
+
+    direct_outbound = {
+        "protocol": "freedom",
+        "tag": "direct",
+        "settings": {
+            "domainStrategy": "UseIPv4",
+        },
+    }
+
+    block_outbound = {
+        "protocol": "blackhole",
+        "tag": "block",
+    }
+
+    def make_config(remarks: str, proxy_ob: Dict[str, Any], include_fragment: bool = True) -> Dict[str, Any]:
+        outbounds = [proxy_ob]
+        if include_fragment:
+            outbounds.append(fragment_outbound)
+        outbounds.extend([direct_outbound, block_outbound])
+
+        return {
+            "remarks": remarks,
+            "dns": common_dns,
+            "inbounds": common_inbounds,
+            "log": {"loglevel": "warning"},
+            "outbounds": outbounds,
+            "routing": common_routing,
+        }
+
+    # 1. Reality Vision
+    vision_ob = {
+        "tag": "proxy",
+        "protocol": "vless",
+        "settings": {
+            "vnext": [
+                {
+                    "address": server_ip,
+                    "port": 20443,
+                    "users": [
+                        {
+                            "id": uuid,
+                            "encryption": "none",
+                            "flow": "xtls-rprx-vision",
+                        }
+                    ],
+                }
+            ]
+        },
+        "streamSettings": {
+            "network": "tcp",
+            "security": "reality",
+            "realitySettings": {
+                "fingerprint": "chrome",
+                "publicKey": pub_key,
+                "serverName": sni,
+                "shortId": short_id,
+                "show": False,
+            },
+            "sockopt": {
+                "dialerProxy": "fragment-out",
+            },
+        },
+    }
+
+    # 2. SplitHTTP AntiDPI
+    xhttp_ob = {
+        "tag": "proxy",
+        "protocol": "vless",
+        "settings": {
+            "vnext": [
+                {
+                    "address": server_ip,
+                    "port": 2053,
+                    "users": [
+                        {
+                            "id": uuid,
+                            "encryption": "none",
+                        }
+                    ],
+                }
+            ]
+        },
+        "streamSettings": {
+            "network": "xhttp",
+            "security": "reality",
+            "realitySettings": {
+                "fingerprint": "chrome",
+                "publicKey": pub_key,
+                "serverName": sni,
+                "shortId": short_id,
+                "show": False,
+            },
+            "xhttpSettings": {
+                "path": "/assets/build/_app/immutable/chunks/stream-one/",
+                "mode": "auto",
+                "scMaxEachPostBytes": 1000000,
+                "scMinPostsIntervalMs": 30,
+                "xPaddingBytes": "100-500",
+                "xmux": {
+                    "maxConcurrency": 16,
+                    "maxConnections": 1,
+                    "cMaxReuseTimes": 256,
+                },
+            },
+            "sockopt": {
+                "dialerProxy": "fragment-out",
+            },
+        },
+    }
+
+    # 3. Reality gRPC
+    grpc_ob = {
+        "tag": "proxy",
+        "protocol": "vless",
+        "settings": {
+            "vnext": [
+                {
+                    "address": server_ip,
+                    "port": 8443,
+                    "users": [
+                        {
+                            "id": uuid,
+                            "encryption": "none",
+                        }
+                    ],
+                }
+            ]
+        },
+        "streamSettings": {
+            "network": "grpc",
+            "security": "reality",
+            "realitySettings": {
+                "fingerprint": "chrome",
+                "publicKey": pub_key,
+                "serverName": sni,
+                "shortId": short_id,
+                "show": False,
+            },
+            "grpcSettings": {
+                "serviceName": "yabl1ch-grpc",
+                "multiMode": True,
+            },
+            "sockopt": {
+                "dialerProxy": "fragment-out",
+            },
+        },
+    }
+
+    # 4. Hysteria 2 Gaming
+    hy_tls: Dict[str, Any] = {
+        "alpn": ["h3"],
+        "fingerprint": "edge",
+        "serverName": sni,
+    }
+    if pinned_sha:
+        hy_tls["pinnedPeerCertSha256"] = pinned_sha
+
+    hy2_ob = {
+        "tag": "proxy",
+        "protocol": "hysteria",
+        "settings": {
+            "address": server_ip,
+            "port": 443,
+            "version": 2,
+        },
+        "streamSettings": {
+            "network": "hysteria",
+            "security": "tls",
+            "hysteriaSettings": {
+                "auth": hy_pass,
+                "version": 2,
+            },
+            "tlsSettings": hy_tls,
+        },
+    }
+
+    # 5. Shadowsocks-2022
+    ss2022_ob = {
+        "tag": "proxy",
+        "protocol": "shadowsocks",
+        "settings": {
+            "servers": [
+                {
+                    "address": server_ip,
+                    "port": 2088,
+                    "method": "2022-blake3-aes-128-gcm",
+                    "password": ss_pass,
+                    "uot": True,
+                }
+            ]
+        },
+    }
+
+    return [
+        make_config("Votex-Reality-Vision", vision_ob, include_fragment=True),
+        make_config("Votex-SplitHTTP-AntiDPI", xhttp_ob, include_fragment=True),
+        make_config("Votex-Reality-gRPC", grpc_ob, include_fragment=True),
+        make_config("Votex-Hysteria2-Gaming", hy2_ob, include_fragment=False),
+        make_config("Votex-Shadowsocks-2022", ss2022_ob, include_fragment=False),
+    ]
+
+
 def get_system_stats() -> Dict[str, Any]:
     """Collect real system metrics from Linux /proc filesystem."""
     stats: Dict[str, Any] = {
@@ -653,27 +1035,20 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
             format_param = query.get("format", [""])[0].lower()
             accept_header = self.headers.get("Accept", "").lower()
 
-            # Return JSON only when explicitly requested
-            # (?format=json or Accept: application/json without wildcard).
-            # By default (for Happ, v2rayN, sing-box, Streisand, etc.), serve Base64 with all 5 protocols
-            # so client displays all 5 individual protocol nodes.
-            is_json = (
-                format_param == "json"
-                or (
-                    "application/json" in accept_header
-                    and "*/*" not in accept_header
-                    and format_param not in ("b64", "base64")
-                )
+            # Serve Base64 only if explicitly requested (?format=b64 or /sub/b64) or for legacy v2rayN
+            is_b64 = (
+                format_param in ("b64", "base64")
+                or clean_path.endswith("/b64")
+                or "v2rayn" in user_agent
             )
 
-            if is_json:
-                profile_data = build_json_profile(cfg)
-                response_bytes = json.dumps(profile_data, indent=2, ensure_ascii=False).encode("utf-8")
+            if is_b64:
+                b64_content = build_base64_subscription(cfg)
+                response_bytes = b64_content.encode("utf-8")
 
                 self.send_response(200)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Profile-Title", "Votex Smart Routing")
-                self.send_header("Profile-Type", "xray")
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Profile-Title", "Votex")
                 self.send_header("Profile-Update-Interval", "24")
                 self.send_header("Profile-Test-Url", "http://cp.cloudflare.com/generate_204")
                 self.send_header("Profile-Web-Page-Url", "https://github.com/Yabl1ch/Votex")
@@ -688,11 +1063,13 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
                 if not head_only:
                     self.wfile.write(response_bytes)
             else:
-                b64_content = build_base64_subscription(cfg)
-                response_bytes = b64_content.encode("utf-8")
+                # Default for Happ, sing-box, browsers:
+                # Return the 5-protocol JSON array with embedded smart routing and DNS
+                configs_array = build_json_array_subscription(cfg)
+                response_bytes = json.dumps(configs_array, indent=2, ensure_ascii=False).encode("utf-8")
 
                 self.send_response(200)
-                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Profile-Title", "Votex")
                 self.send_header("Profile-Update-Interval", "24")
                 self.send_header("Profile-Test-Url", "http://cp.cloudflare.com/generate_204")
