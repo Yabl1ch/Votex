@@ -250,25 +250,30 @@ class TestSubscriptionHttpServer(unittest.TestCase):
         with urllib.request.urlopen(url) as resp:
             self.assertEqual(resp.status, 200)
             self.assertEqual(resp.headers.get("Content-Type"), "application/json; charset=utf-8")
-            self.assertEqual(resp.headers.get("Profile-Title"), "Votex / JSON")
+            self.assertEqual(resp.headers.get("Profile-Title"), "Votex")
             data = json.loads(resp.read().decode("utf-8"))
-            self.assertEqual(data["remarks"], "Votex / JSON")
+            self.assertEqual(data["remarks"], "Votex")
             self.assertIn("burstObservatory", data)
             self.assertIn("outbounds", data)
             self.assertIn("routing", data)
 
-    def test_200_happ_user_agent_gets_json_with_smart_routing(self):
-        """Verify Happ client receives JSON profile with Smart Routing and Profile-Title 'Votex / JSON'."""
+    def test_200_happ_user_agent_gets_base64_with_5_protocols(self):
+        """Verify Happ client receives all 5 clean protocol links via Base64 without / JSON."""
         url = f"http://127.0.0.1:{self.port}/sub/{self.token}"
         req = urllib.request.Request(url, headers={"User-Agent": "Happ/2.4.0 (Windows NT 10.0)"})
         with urllib.request.urlopen(req) as resp:
             self.assertEqual(resp.status, 200)
-            self.assertEqual(resp.headers.get("Profile-Title"), "Votex / JSON")
-            self.assertEqual(resp.headers.get("Content-Type"), "application/json; charset=utf-8")
-            data = json.loads(resp.read().decode("utf-8"))
-            self.assertEqual(data["remarks"], "Votex / JSON")
-            self.assertIn("routing", data)
-            self.assertIn("burstObservatory", data)
+            self.assertEqual(resp.headers.get("Profile-Title"), "Votex")
+            self.assertEqual(resp.headers.get("Content-Type"), "text/plain; charset=utf-8")
+            body = resp.read().decode("utf-8")
+            decoded = base64.b64decode(body.encode("utf-8")).decode("utf-8")
+            lines = [l.strip() for l in decoded.splitlines() if l.strip()]
+            self.assertEqual(len(lines), 5, f"Expected 5 protocol configs for Happ, got {len(lines)}")
+            self.assertIn("#Votex-Reality-Vision", lines[0])
+            self.assertIn("#Votex-SplitHTTP-AntiDPI", lines[1])
+            self.assertIn("#Votex-Reality-gRPC", lines[2])
+            self.assertIn("#Votex-Hysteria2-Gaming", lines[3])
+            self.assertIn("#Votex-Shadowsocks-2022", lines[4])
 
     def test_200_v2rayn_user_agent_gets_base64_with_5_protocols(self):
         """Verify v2rayN client receives 5 clean protocol links via Base64."""

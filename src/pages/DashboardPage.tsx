@@ -234,7 +234,7 @@ export const DashboardPage: React.FC = () => {
           glow
           icon={<ExternalLink className="w-5 h-5 text-[#4ADE80]" />}
           title="Ссылка подписки"
-          subtitle="Умная маршрутизация Smart Routing и 5 протоколов"
+          subtitle="Подписка на 5 протоколов обхода блокировок"
           badge={
             <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full font-mono ${
               hasVps
@@ -248,7 +248,7 @@ export const DashboardPage: React.FC = () => {
           <div className="space-y-3.5 my-1">
             <p className="text-sm text-[#A7F3D0]/80 leading-relaxed">
               {hasVps
-                ? "Персональный URL для автоматического импорта Smart Routing и 5 протоколов в клиент Happ."
+                ? "Персональный URL для автоматического импорта всех 5 протоколов в клиент Happ."
                 : "Ссылка появится здесь после первоначальной настройки сервера в Мастере установки."}
             </p>
 
@@ -282,7 +282,7 @@ export const DashboardPage: React.FC = () => {
             <div className="flex items-center justify-between pt-1 text-xs text-[#A7F3D0]/70">
               <span className="flex items-center gap-1.5">
                 <Zap className="w-3.5 h-3.5 text-[#4ADE80]" />
-                {hasVps ? "Smart Routing / JSON активен" : "Ожидание настройки"}
+                {hasVps ? "5 протоколов активны" : "Ожидание настройки"}
               </span>
               <button
                 type="button"

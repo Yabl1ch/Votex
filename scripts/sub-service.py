@@ -201,7 +201,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
     ]
 
     profile: Dict[str, Any] = {
-        "remarks": "Votex / JSON",
+        "remarks": "Votex",
         "burstObservatory": {
             "pingConfig": {
                 "destination": "http://cp.cloudflare.com/generate_204",
@@ -653,28 +653,26 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
             format_param = query.get("format", [""])[0].lower()
             accept_header = self.headers.get("Accept", "").lower()
 
-            # Serve JSON with Smart Routing profile for Happ, sing-box, xray or when not requesting b64.
-            # Base64 is only served when explicitly requested (?format=b64 or ?format=base64)
-            # or for clients that require raw link lists (v2rayN, or desktop browser view).
-            is_base64 = (
-                format_param in ("b64", "base64")
-                or "v2rayn" in user_agent
+            # Return JSON only when explicitly requested
+            # (?format=json or Accept: application/json without wildcard).
+            # By default (for Happ, v2rayN, sing-box, Streisand, etc.), serve Base64 with all 5 protocols
+            # so client displays all 5 individual protocol nodes.
+            is_json = (
+                format_param == "json"
                 or (
-                    user_agent.startswith("mozilla")
-                    and "happ" not in user_agent
-                    and "sing-box" not in user_agent
-                    and format_param != "json"
-                    and "application/json" not in accept_header
+                    "application/json" in accept_header
+                    and "*/*" not in accept_header
+                    and format_param not in ("b64", "base64")
                 )
             )
 
-            if not is_base64:
+            if is_json:
                 profile_data = build_json_profile(cfg)
                 response_bytes = json.dumps(profile_data, indent=2, ensure_ascii=False).encode("utf-8")
 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Profile-Title", "Votex / JSON")
+                self.send_header("Profile-Title", "Votex")
                 self.send_header("Profile-Type", "xray")
                 self.send_header("Profile-Update-Interval", "24")
                 self.send_header("Profile-Test-Url", "http://cp.cloudflare.com/generate_204")
