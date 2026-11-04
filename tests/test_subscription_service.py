@@ -48,7 +48,7 @@ class TestSubscriptionService(unittest.TestCase):
         # Check 1: Votex-auto link (top item)
         auto_link = links[0]
         self.assertTrue(auto_link.startswith("vless://"))
-        self.assertIn("198.51.100.42:443", auto_link)
+        self.assertIn("198.51.100.42:20444", auto_link)
         self.assertIn("flow=xtls-rprx-vision", auto_link)
         self.assertIn("Votex-auto", auto_link)
 

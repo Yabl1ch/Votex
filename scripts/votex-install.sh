@@ -150,7 +150,7 @@ ufw default deny incoming > /dev/null 2>&1 || true
 ufw default allow outgoing > /dev/null 2>&1 || true
 ufw allow "${SSH_PORT}/tcp" comment 'Votex SSH' > /dev/null 2>&1 || true
 [[ "${SSH_PORT}" != "22" ]] && ufw allow 22/tcp comment 'Votex Default SSH' > /dev/null 2>&1 || true
-ufw allow 443/tcp comment 'Votex VLESS Reality Auto' > /dev/null 2>&1 || true
+ufw allow 20444/tcp comment 'Votex VLESS Reality Auto' > /dev/null 2>&1 || true
 ufw allow 20443/tcp comment 'Votex VLESS Reality Vision' > /dev/null 2>&1 || true
 ufw allow 2053/tcp comment 'Votex VLESS Reality SplitHTTP' > /dev/null 2>&1 || true
 ufw allow 8443/tcp comment 'Votex VLESS Reality gRPC' > /dev/null 2>&1 || true
@@ -291,7 +291,7 @@ cat << EOF > /usr/local/etc/xray/config.json
   "inbounds": [
     {
       "tag": "vless-auto",
-      "port": 443,
+      "port": 20444,
       "protocol": "vless",
       "settings": {
         "clients": [
@@ -430,7 +430,7 @@ cat << EOF > /usr/local/etc/xray/config.json
       "protocol": "dokodemo-door",
       "settings": {
         "address": "127.0.0.1",
-        "port": 2083,
+        "port": 18080,
         "network": "tcp"
       }
     }
@@ -465,6 +465,12 @@ masquerade:
     rewriteHost: true
 EOF
 
+# Set proper permissions for /etc/hysteria and certificates
+chmod 755 /etc/hysteria
+chmod 644 /etc/hysteria/server.crt > /dev/null 2>&1 || true
+chmod 644 /etc/hysteria/server.key > /dev/null 2>&1 || true
+chmod 644 /etc/hysteria/config.yaml > /dev/null 2>&1 || true
+
 # Hysteria 2 Systemd Unit
 cat << 'EOF' > /etc/systemd/system/hysteria-server.service
 [Unit]
@@ -473,9 +479,10 @@ After=network.target
 
 [Service]
 Type=simple
+User=root
 ExecStart=/usr/local/bin/hysteria server --config /etc/hysteria/config.yaml
-Restart=on-failure
-RestartSec=5s
+Restart=always
+RestartSec=3s
 LimitNOFILE=65535
 
 [Install]
@@ -489,7 +496,7 @@ systemctl enable --now hysteria-server > /dev/null 2>&1 || systemctl restart hys
 
 sleep 2
 if systemctl is-active --quiet xray; then
-    log_info "Xray-core успешно запущен (порты 443, 20443, 2053, 8443, 2083-TCP, 2088 активны)"
+    log_info "Xray-core успешно запущен (порты 20444, 20443, 2053, 8443, 2083-TCP, 2088 активны)"
 else
     log_warn "Xray не запустился. Диагностика службы:"
     journalctl -u xray -n 12 --no-pager 2>&1 || true
@@ -580,7 +587,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
 
     links: List[str] = [
         (
-            f"vless://{uuid}@{server_ip}:443"
+            f"vless://{uuid}@{server_ip}:20444"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=chrome"
             f"&type=tcp&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid={short_id}"
             f"#Votex-auto"
@@ -802,7 +809,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "vnext": [
                         {
                             "address": server_ip,
-                            "port": 443,
+                            "port": 20444,
                             "users": [
                                 {
                                     "id": uuid,
@@ -1381,7 +1388,7 @@ cat << EOF > /var/log/votex-report.json
     "tcp_bbr": true,
     "fail2ban": true,
     "ufw": true,
-    "allowed_ports": [22, 443, 20443, 2053, 8443, 2083, 2088, 18080]
+    "allowed_ports": [22, 20444, 20443, 2053, 8443, 2083, 2088, 18080]
   }
 }
 EOF
@@ -1397,7 +1404,7 @@ echo -e "${CYAN}Фаервол UFW:            ${NC}Включен (Все не�
 echo -e "${CYAN}TCP BBR Ускорение:      ${NC}Включено (net.core.default_qdisc = fq)"
 echo -e "${CYAN}Задержка (Ping):        ${NC}${PING_MS} ms"
 echo -e "${CYAN}Скорость канала:        ${NC}${SPEED_MBPS} Mbps"
-echo -e "${CYAN}Протоколы All-In-One:   ${NC}Auto (443), Vision (20443), SplitHTTP (2053), gRPC (8443), Hysteria2 (2083), SS-2022 (2088)"
+echo -e "${CYAN}Протоколы All-In-One:   ${NC}Auto (20444), Vision (20443), SplitHTTP (2053), gRPC (8443), Hysteria2 (2083), SS-2022 (2088)"
 echo -e "${CYAN}Маршрутизация РФ:       ${NC}Direct (.ru, .su, Банки, Госуслуги, Ozon)"
 echo -e "${CYAN}Разблокировка ИИ:       ${NC}Proxy (Gemini, Claude, ChatGPT, YouTube, Discord)"
 echo -e "${CYAN}Анти-DPI защита:        ${NC}TLS Packet Fragmentation (1-3 packets, 100-200 len)"

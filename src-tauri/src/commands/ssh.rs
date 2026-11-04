@@ -262,7 +262,7 @@ VOTEX_JSON_REPORT_START
     "tcp_bbr": true,
     "fail2ban": true,
     "ufw": true,
-    "allowed_ports": [22, 443, 20443, 2053, 8443, 2083, 2088, 18080]
+    "allowed_ports": [22, 20444, 20443, 2053, 8443, 2083, 2088, 18080]
   }
 }
 VOTEX_JSON_REPORT_END

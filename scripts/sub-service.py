@@ -57,8 +57,8 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
 
     links: List[str] = [
         (
-            f"vless://{uuid}@{server_ip}:443"
-            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
+            f"vless://{uuid}@{server_ip}:20444"
+            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=chrome"
             f"&type=tcp&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid={short_id}"
             f"#Votex-auto"
         ),
@@ -279,7 +279,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "vnext": [
                         {
                             "address": server_ip,
-                            "port": 443,
+                            "port": 20444,
                             "users": [
                                 {
                                     "id": uuid,
