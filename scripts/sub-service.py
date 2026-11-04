@@ -568,9 +568,9 @@ def build_json_array_subscription(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
                     "domain:2gis.ru",
                     "domain:rutube.ru",
                     "domain:dzen.ru",
-                    "regexp:^(.+\.)?ru$",
-                    "regexp:^(.+\.)?su$",
-                    "regexp:^(.+\.)?xn--p1ai$",
+                    "regexp:^(.+\\.)?ru$",
+                    "regexp:^(.+\\.)?su$",
+                    "regexp:^(.+\\.)?xn--p1ai$",
                 ],
                 "skipFallback": True,
             },
@@ -665,9 +665,9 @@ def build_json_array_subscription(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
                     "domain:ria.ru",
                     "domain:tass.ru",
                     "domain:kp.ru",
-                    "regexp:^(.+\.)?ru$",
-                    "regexp:^(.+\.)?su$",
-                    "regexp:^(.+\.)?xn--p1ai$",
+                    "regexp:^(.+\\.)?ru$",
+                    "regexp:^(.+\\.)?su$",
+                    "regexp:^(.+\\.)?xn--p1ai$",
                 ],
             },
             {
@@ -688,18 +688,6 @@ def build_json_array_subscription(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
         ],
     }
 
-    fragment_outbound = {
-        "protocol": "freedom",
-        "tag": "fragment-out",
-        "settings": {
-            "fragment": {
-                "packets": "1-3",
-                "length": "100-200",
-                "interval": "10-20",
-            }
-        },
-    }
-
     direct_outbound = {
         "protocol": "freedom",
         "tag": "direct",
@@ -713,18 +701,13 @@ def build_json_array_subscription(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
         "tag": "block",
     }
 
-    def make_config(remarks: str, proxy_ob: Dict[str, Any], include_fragment: bool = True) -> Dict[str, Any]:
-        outbounds = [proxy_ob]
-        if include_fragment:
-            outbounds.append(fragment_outbound)
-        outbounds.extend([direct_outbound, block_outbound])
-
+    def make_config(remarks: str, proxy_ob: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "remarks": remarks,
             "dns": common_dns,
             "inbounds": common_inbounds,
             "log": {"loglevel": "warning"},
-            "outbounds": outbounds,
+            "outbounds": [proxy_ob, direct_outbound, block_outbound],
             "routing": common_routing,
         }
 
@@ -751,14 +734,11 @@ def build_json_array_subscription(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             "network": "tcp",
             "security": "reality",
             "realitySettings": {
-                "fingerprint": "chrome",
+                "fingerprint": "firefox",
                 "publicKey": pub_key,
                 "serverName": sni,
                 "shortId": short_id,
                 "show": False,
-            },
-            "sockopt": {
-                "dialerProxy": "fragment-out",
             },
         },
     }
@@ -785,7 +765,7 @@ def build_json_array_subscription(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             "network": "xhttp",
             "security": "reality",
             "realitySettings": {
-                "fingerprint": "chrome",
+                "fingerprint": "firefox",
                 "publicKey": pub_key,
                 "serverName": sni,
                 "shortId": short_id,
@@ -794,17 +774,6 @@ def build_json_array_subscription(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             "xhttpSettings": {
                 "path": "/assets/build/_app/immutable/chunks/stream-one/",
                 "mode": "auto",
-                "scMaxEachPostBytes": 1000000,
-                "scMinPostsIntervalMs": 30,
-                "xPaddingBytes": "100-500",
-                "xmux": {
-                    "maxConcurrency": 16,
-                    "maxConnections": 1,
-                    "cMaxReuseTimes": 256,
-                },
-            },
-            "sockopt": {
-                "dialerProxy": "fragment-out",
             },
         },
     }
@@ -831,7 +800,7 @@ def build_json_array_subscription(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             "network": "grpc",
             "security": "reality",
             "realitySettings": {
-                "fingerprint": "chrome",
+                "fingerprint": "firefox",
                 "publicKey": pub_key,
                 "serverName": sni,
                 "shortId": short_id,
@@ -839,10 +808,7 @@ def build_json_array_subscription(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             },
             "grpcSettings": {
                 "serviceName": "yabl1ch-grpc",
-                "multiMode": True,
-            },
-            "sockopt": {
-                "dialerProxy": "fragment-out",
+                "multiMode": False,
             },
         },
     }
@@ -893,11 +859,11 @@ def build_json_array_subscription(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
     }
 
     return [
-        make_config("Votex-Reality-Vision", vision_ob, include_fragment=True),
-        make_config("Votex-SplitHTTP-AntiDPI", xhttp_ob, include_fragment=True),
-        make_config("Votex-Reality-gRPC", grpc_ob, include_fragment=True),
-        make_config("Votex-Hysteria2-Gaming", hy2_ob, include_fragment=False),
-        make_config("Votex-Shadowsocks-2022", ss2022_ob, include_fragment=False),
+        make_config("Votex-Reality-Vision", vision_ob),
+        make_config("Votex-SplitHTTP-AntiDPI", xhttp_ob),
+        make_config("Votex-Reality-gRPC", grpc_ob),
+        make_config("Votex-Hysteria2-Gaming", hy2_ob),
+        make_config("Votex-Shadowsocks-2022", ss2022_ob),
     ]
 
 
