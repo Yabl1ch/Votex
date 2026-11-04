@@ -5,6 +5,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
+use keyring::Entry;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -32,6 +33,16 @@ pub struct VaultRecord {
     pub subscription_token: String,
     pub subscription_url: String,
     pub updated_at: String,
+    #[serde(default)]
+    pub host_key_fingerprint: Option<String>,
+    #[serde(default)]
+    pub sni_domain: Option<String>,
+    #[serde(default)]
+    pub client_uuid: Option<String>,
+    #[serde(default)]
+    pub reality_public_key: Option<String>,
+    #[serde(default)]
+    pub short_id: Option<String>,
 }
 
 pub struct Vault {
@@ -42,7 +53,7 @@ pub struct Vault {
 impl Vault {
     pub fn new() -> Result<Self, VaultError> {
         let storage_path = Self::default_vault_path();
-        let key = Self::derive_machine_key();
+        let key = Self::load_or_create_master_key();
         Ok(Self { storage_path, key })
     }
 
@@ -56,6 +67,46 @@ impl Vault {
         let _ = fs::create_dir_all(&path);
         path.push("vault.bin");
         path
+    }
+
+    pub fn load_or_create_master_key() -> [u8; 32] {
+        const SERVICE_NAME: &str = "VotexVault";
+        const KEY_USER: &str = "master_encryption_key";
+
+        // Try using OS Keyring (Windows Credential Manager / Hardware-backed keystore)
+        if let Ok(entry) = Entry::new(SERVICE_NAME, KEY_USER) {
+            if let Ok(stored_hex) = entry.get_password() {
+                if let Ok(bytes) = Self::hex_to_32_bytes(&stored_hex) {
+                    return bytes;
+                }
+            }
+            // Generate a fresh cryptographically secure random 256-bit AES master key
+            let mut random_key = [0u8; 32];
+            rand::thread_rng().fill_bytes(&mut random_key);
+            let hex_str = Self::bytes_to_hex(&random_key);
+            if entry.set_password(&hex_str).is_ok() {
+                return random_key;
+            }
+        }
+
+        // Resilient fallback to machine key derivation if OS keyring is unavailable
+        Self::derive_machine_key()
+    }
+
+    pub fn bytes_to_hex(bytes: &[u8; 32]) -> String {
+        bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+
+    pub fn hex_to_32_bytes(hex: &str) -> Result<[u8; 32], ()> {
+        let hex = hex.trim();
+        if hex.len() != 64 {
+            return Err(());
+        }
+        let mut bytes = [0u8; 32];
+        for i in 0..32 {
+            bytes[i] = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).map_err(|_| ())?;
+        }
+        Ok(bytes)
     }
 
     fn derive_machine_key() -> [u8; 32] {
@@ -169,6 +220,11 @@ mod tests {
             subscription_token: "abcd1234efgh5678".to_string(),
             subscription_url: "http://192.168.1.100:18080/sub/abcd1234efgh5678".to_string(),
             updated_at: "2026-11-03T12:00:00Z".to_string(),
+            host_key_fingerprint: Some("SHA256:abc123456789".to_string()),
+            sni_domain: Some("addons.mozilla.org".to_string()),
+            client_uuid: Some("11111111-2222-3333-4444-555555555555".to_string()),
+            reality_public_key: Some("pubkey_xyz".to_string()),
+            short_id: Some("01234567".to_string()),
         };
 
         vault.save_record(&record).expect("Failed to save record");
@@ -195,6 +251,11 @@ mod tests {
             subscription_token: "token_secret_123".to_string(),
             subscription_url: "http://10.0.0.1:18080/sub/token_secret_123".to_string(),
             updated_at: "2026-11-03T12:00:00Z".to_string(),
+            host_key_fingerprint: None,
+            sni_domain: None,
+            client_uuid: None,
+            reality_public_key: None,
+            short_id: None,
         };
 
         vault.save_record(&record).expect("Failed to save record");
@@ -222,5 +283,20 @@ mod tests {
 
         let loaded = vault.load_record().expect("Loading missing vault should return Ok(None)");
         assert_eq!(loaded, None);
+    }
+
+    #[test]
+    fn test_hex_conversion_roundtrip() {
+        let key = [0xABu8; 32];
+        let hex = Vault::bytes_to_hex(&key);
+        assert_eq!(hex.len(), 64);
+        let recovered = Vault::hex_to_32_bytes(&hex).expect("Failed to parse hex string");
+        assert_eq!(recovered, key);
+    }
+
+    #[test]
+    fn test_master_key_loading() {
+        let key = Vault::load_or_create_master_key();
+        assert_ne!(key, [0u8; 32]);
     }
 }

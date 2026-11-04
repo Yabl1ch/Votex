@@ -65,6 +65,7 @@ export interface AppState {
   quickPing: (host?: string, port?: number) => Promise<number>;
   fetchLiveMetrics: (host?: string, token?: string) => Promise<ServerMetrics | null>;
   regenerateToken: () => Promise<string>;
+  rotateServerKeysAction: (passwordOverride?: string) => Promise<string>;
   restartServiceAction: (service: string) => Promise<string>;
   rebootServerAction: () => Promise<string>;
 
@@ -462,6 +463,30 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     return newToken;
+  },
+
+  rotateServerKeysAction: async (passwordOverride?: string) => {
+    const host = (get().vpsConfig.host || get().report?.server_ip || "").trim();
+    const port = get().vpsConfig.port || 22;
+    const username = get().vpsConfig.username || "root";
+    const password = passwordOverride || get().vpsConfig.password;
+
+    if (!host) {
+      throw new Error("Не указан IP-адрес сервера");
+    }
+    if (!password) {
+      throw new Error("Для ротации ключей на сервере требуется пароль SSH");
+    }
+
+    const { invoke } = await import("@tauri-apps/api/core");
+    const newUrl = await invoke<string>("rotate_server_keys", {
+      host,
+      port,
+      username,
+      password,
+    });
+    await get().loadSavedVpsFromVault();
+    return newUrl;
   },
 
   restartServiceAction: async (service: string) => {

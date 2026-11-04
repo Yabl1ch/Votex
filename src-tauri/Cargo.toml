@@ -30,3 +30,4 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
+keyring = { version = "3", default-features = false, features = ["windows-native"] }

@@ -30,13 +30,97 @@ log_error() {
     echo -e "${RED}[VOTEX-ERROR]${NC} $1"
 }
 
-# 1. Pre-flight checks: root privileges and CPU architecture
+# Active SSH port detection early for safe rollback
+SSH_PORT="${VOTEX_SSH_PORT:-22}"
+if [[ -z "${SSH_PORT}" || "${SSH_PORT}" -eq 0 ]]; then
+    DETECTED_PORT=$(ss -tlnp 2>/dev/null | grep sshd | awk '{print $4}' | awk -F: '{print $NF}' | head -n1 || echo "")
+    [[ -n "${DETECTED_PORT}" ]] && SSH_PORT="${DETECTED_PORT}" || SSH_PORT=22
+fi
+
+# Automatic Failure Rollback Mechanism
+PROVISION_SUCCESS=0
+
+rollback_installation() {
+    local exit_code=$1
+    local line_no=$2
+    if [[ "${PROVISION_SUCCESS}" -eq 1 ]]; then
+        return 0
+    fi
+    echo ""
+    log_error "======================================================================"
+    log_error "[VOTEX-ROLLBACK] СБОЙ РАЗВЕРТЫВАНИЯ на строке ${line_no} (код ошибки ${exit_code})!"
+    log_error "[VOTEX-ROLLBACK] Запуск автоматического отката и очистки сервера..."
+    log_error "======================================================================"
+
+    # 1. Stop and disable created systemd services
+    log_info "[ROLLBACK 1/5] Остановка и отключение служб Votex..."
+    systemctl stop xray hysteria-server votex-subscription 2>/dev/null || true
+    systemctl disable xray hysteria-server votex-subscription 2>/dev/null || true
+    rm -f /etc/systemd/system/xray.service \
+          /etc/systemd/system/hysteria-server.service \
+          /etc/systemd/system/votex-subscription.service 2>/dev/null || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
+
+    # 2. Remove binaries and configuration directories
+    log_info "[ROLLBACK 2/5] Удаление конфигураций и бинарников..."
+    rm -rf /usr/local/etc/xray /etc/hysteria /etc/votex /tmp/xray /tmp/hysteria.tar.gz 2>/dev/null || true
+    rm -f /usr/local/bin/xray /usr/local/bin/hysteria /var/log/votex-report.json 2>/dev/null || true
+
+    # 3. Revert sysctl and fail2ban rules
+    log_info "[ROLLBACK 3/5] Откат сетевых настроек и Fail2ban..."
+    rm -f /etc/sysctl.d/99-votex.conf /etc/fail2ban/jail.d/votex-ssh.local 2>/dev/null || true
+    sysctl --system >/dev/null 2>&1 || true
+    systemctl restart fail2ban >/dev/null 2>&1 || true
+
+    # 4. Clean UFW firewall and iptables rules while preserving SSH
+    log_info "[ROLLBACK 4/5] Восстановление правил фаервола (доступ SSH сохранен)..."
+    ufw delete allow 20443/tcp >/dev/null 2>&1 || true
+    ufw delete allow 2053/tcp >/dev/null 2>&1 || true
+    ufw delete allow 8443/tcp >/dev/null 2>&1 || true
+    ufw delete allow 8443/udp >/dev/null 2>&1 || true
+    ufw delete allow 2083/udp >/dev/null 2>&1 || true
+    ufw delete allow 2083/tcp >/dev/null 2>&1 || true
+    ufw delete allow 2088/tcp >/dev/null 2>&1 || true
+    ufw delete allow 2088/udp >/dev/null 2>&1 || true
+    ufw delete allow 18080/tcp >/dev/null 2>&1 || true
+    ufw allow "${SSH_PORT}/tcp" >/dev/null 2>&1 || true
+    iptables -t nat -D PREROUTING -p udp --dport 2083 -j REDIRECT --to-ports 8443 2>/dev/null || true
+    iptables -t nat -D PREROUTING -p udp --dport 443 -j REDIRECT --to-ports 8443 2>/dev/null || true
+
+    log_warn "[ROLLBACK 5/5] Сервер полностью очищен и возвращен в исходное состояние."
+    log_warn "[ROLLBACK] Доступ по SSH гарантированно сохранен на порту ${SSH_PORT}."
+    exit "${exit_code}"
+}
+trap 'rollback_installation $? $LINENO' ERR INT TERM
+
+# 1. Pre-flight checks: root privileges, OS compatibility, and CPU architecture
 if [[ "${EUID}" -ne 0 ]]; then
     log_error "Скрипт должен быть запущен с правами root!"
     exit 1
 fi
 
-log_step "==> Шаг 1/6: Предварительная валидация окружения..."
+log_step "==> Шаг 1/6: Предварительная валидация окружения и дистрибутива..."
+
+# Check OS distribution
+if [[ -f /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    log_info "Операционная система: ${NAME:-Linux} ${VERSION_ID:-} (${ID:-})"
+    case "${ID:-}" in
+        debian|ubuntu)
+            log_info "Дистрибутив поддерживается (Debian/Ubuntu)"
+            ;;
+        *)
+            log_warn "Обнаружен дистрибутив: ${ID:-unknown}. Рекомендуются чистые Debian 11/12 или Ubuntu 20.04/22.04/24.04."
+            ;;
+    esac
+fi
+
+# Verify systemd init system is active
+if ! pidof systemd >/dev/null 2>&1 && ! [[ -d /run/systemd/system ]]; then
+    log_error "Votex требует систему инициализации systemd. Системы без systemd (OpenVZ 6, SysVinit) не поддерживаются."
+    exit 1
+fi
 
 ARCH=$(uname -m)
 case "${ARCH}" in
@@ -60,6 +144,7 @@ SERVER_IP=$(curl -s4 --max-time 4 https://api.ipify.org 2>/dev/null || \
             curl -s4 --max-time 4 https://icanhazip.com 2>/dev/null || \
             curl -s4 --max-time 4 https://ifconfig.me 2>/dev/null || \
             curl -s4 --max-time 4 https://checkip.amazonaws.com 2>/dev/null || \
+            wget -qO- --timeout=4 http://api.ipify.org 2>/dev/null || \
             ip route get 1.1.1.1 2>/dev/null | awk '{print $7}' | tr -d '[:space:]' || \
             echo "127.0.0.1")
 SERVER_IP=$(echo "${SERVER_IP}" | tr -d '[:space:]')
@@ -70,7 +155,7 @@ log_step "==> Шаг 2/6: Установка системных зависимо
 export DEBIAN_FRONTEND=noninteractive
 export UCF_FORCE_CONFFOLD=1
 
-# Ожидание освобождения apt/dpkg locks (например, если на новом VPS еще выполняется cloud-init)
+# Wait for apt/dpkg lock release (e.g. if cloud-init is running on fresh VPS)
 for i in {1..30}; do
     if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
         log_info "Ожидание освобождения системного менеджера пакетов dpkg/apt (${i}/30)..."
@@ -83,17 +168,89 @@ done
 log_info "Синхронизация списков репозиториев apt..."
 apt-get update -y > /dev/null 2>&1 || true
 
-log_info "Установка базовых пакетов (curl, wget, jq, ufw, fail2ban, openssl, python3)..."
-apt-get install -y --no-install-recommends curl wget jq ufw fail2ban openssl uuid-runtime tar unzip python3 ca-certificates iproute2 > /dev/null 2>&1 || \
-    apt-get install -y curl wget openssl python3 ca-certificates > /dev/null 2>&1 || true
+log_info "Установка базовых пакетов (curl, wget, jq, ufw, fail2ban, openssl, python3, psmisc)..."
+apt-get install -y --no-install-recommends \
+    curl wget jq ufw fail2ban openssl uuid-runtime tar unzip python3 ca-certificates iproute2 psmisc > /dev/null 2>&1 || \
+    apt-get install -y curl wget openssl python3 ca-certificates psmisc > /dev/null 2>&1 || true
 
-# Определение активного порта SSH
-SSH_PORT="${VOTEX_SSH_PORT:-22}"
-if [[ -z "${SSH_PORT}" || "${SSH_PORT}" -eq 0 ]]; then
-    DETECTED_PORT=$(ss -tlnp 2>/dev/null | grep sshd | awk '{print $4}' | awk -F: '{print $NF}' | head -n1 || echo "")
-    [[ -n "${DETECTED_PORT}" ]] && SSH_PORT="${DETECTED_PORT}" || SSH_PORT=22
-fi
 log_info "Используемый порт администрирования SSH: ${SSH_PORT}"
+
+# Port conflict detection and auto-resolution
+check_and_resolve_port_conflicts() {
+    local votex_ports=(20443 2053 8443 2088 18080)
+    log_info "Проверка доступности рабочих портов Votex..."
+    for p in "${votex_ports[@]}"; do
+        if ss -tuln 2>/dev/null | grep -q ":${p}\b"; then
+            local proc_name
+            proc_name=$(ss -tulpn 2>/dev/null | grep ":${p}\b" | awk '{print $NF}' | head -n1 || echo "")
+            log_info "Порт ${p} занят (${proc_name}). Освобождение порта для Votex..."
+            systemctl stop xray hysteria-server votex-subscription 2>/dev/null || true
+            fuser -k -n tcp "${p}" 2>/dev/null || true
+            fuser -k -n udp "${p}" 2>/dev/null || true
+            sleep 1
+        fi
+    done
+}
+check_and_resolve_port_conflicts
+
+# Pre-deployment SNI validation and dynamic candidate selection
+select_best_sni() {
+    log_info "Тестирование доступности и валидация кандидатов маскировки SNI (TLS 1.3 + HTTP/2)..."
+    local candidates=(
+        "addons.mozilla.org"
+        "www.microsoft.com"
+        "gateway.icloud.com"
+        "dl.google.com"
+        "www.apple.com"
+        "teams.microsoft.com"
+    )
+    local best_sni=""
+    local min_latency=9999
+
+    for domain in "${candidates[@]}"; do
+        # 1. DNS check
+        if ! getent ahosts "${domain}" >/dev/null 2>&1; then
+            continue
+        fi
+        # 2. TLS 1.3 check with timeout
+        local tls_check
+        tls_check=$(timeout 4 bash -c "echo | openssl s_client -connect ${domain}:443 -servername ${domain} -tls1_3 -brief 2>&1" || true)
+        if ! echo "${tls_check}" | grep -E -q "TLSv1\.3|Protocol\s*:\s*TLSv1\.3"; then
+            continue
+        fi
+        # 3. HTTP/2 ALPN check
+        local alpn_check
+        alpn_check=$(timeout 4 bash -c "echo | openssl s_client -connect ${domain}:443 -servername ${domain} -alpn h2 2>&1" || true)
+        if ! echo "${alpn_check}" | grep -q "ALPN protocol: h2"; then
+            continue
+        fi
+        # 4. Measure handshake latency
+        local start_ms end_ms elapsed
+        start_ms=$(date +%s%3N 2>/dev/null || python3 -c 'import time; print(int(time.time()*1000))' 2>/dev/null || echo 0)
+        timeout 3 bash -c "true < /dev/tcp/${domain}/443" 2>/dev/null || true
+        end_ms=$(date +%s%3N 2>/dev/null || python3 -c 'import time; print(int(time.time()*1000))' 2>/dev/null || echo 50)
+        elapsed=$((end_ms - start_ms))
+        if [[ ${elapsed} -le 0 ]]; then elapsed=50; fi
+
+        log_info "Кандидат SNI: ${domain} (TLS 1.3: OK, h2: OK, задержка: ${elapsed}ms)"
+        if [[ ${elapsed} -lt ${min_latency} ]]; then
+            min_latency=${elapsed}
+            best_sni="${domain}"
+            if [[ ${elapsed} -lt 80 ]]; then
+                break
+            fi
+        fi
+    done
+
+    if [[ -z "${best_sni}" ]]; then
+        best_sni="addons.mozilla.org"
+        log_warn "Автоподбор SNI: используется проверенный домен по умолчанию: ${best_sni}"
+    else
+        log_info "Выбран оптимальный домен прикрытия SNI: ${best_sni} (задержка: ${min_latency}ms)"
+    fi
+    REALITY_SNI="${best_sni}"
+}
+select_best_sni
 
 # 3. Operating System Hardening
 log_step "==> Шаг 3/6: Применение харднинга (Fail2ban, UFW, TCP BBR)..."
@@ -212,51 +369,29 @@ EOF
 # 4.2. Install Hysteria 2
 mkdir -p /etc/hysteria
 curl -fsSL https://get.hy2.sh/ | bash > /dev/null 2>&1 || {
-    log_warn "Официальный скрипт Hysteria не сработал, скачиваем бинарник напрямую..."
+    log_warn "Официальный скрипт Hysteria не сработал, скачиваем бинарник с GitHub..."
     HYSTERIA_URL="https://github.com/apernet/hysteria/releases/latest/download/hysteria-linux-${HYSTERIA_ARCH}"
     wget -qO /usr/local/bin/hysteria "${HYSTERIA_URL}" || true
     chmod +x /usr/local/bin/hysteria || true
 }
 
-# 5. Cryptographic Keys & Configuration Generation
-log_step "==> Шаг 5/6: Генерация ключей X25519, UUID и настройка All-In-One..."
+# 5. Configuration Generation and Key Generation
+log_step "==> Шаг 5/6: Генерация криптографических ключей и конфигураций..."
 
-# Generate X25519 Keys for Reality
-REALITY_PRIVATE_KEY=""
-REALITY_PUBLIC_KEY=""
+# Generate Reality X25519 keys
 if [[ -x /usr/local/bin/xray ]]; then
-    XRAY_KEYS=$(/usr/local/bin/xray x25519 2>&1 || true)
-    REALITY_PRIVATE_KEY=$(echo "${XRAY_KEYS}" | grep -iE "Private[ _]?key" | awk -F: '{print $NF}' | tr -d '[:space:]')
-    REALITY_PUBLIC_KEY=$(echo "${XRAY_KEYS}" | grep -iE "Public[ _]?key" | awk -F: '{print $NF}' | tr -d '[:space:]')
-fi
-
-# Resilient fallback: RFC 7748 Montgomery ladder mathematically valid Curve25519 keypair
-if [[ -z "${REALITY_PRIVATE_KEY}" || -z "${REALITY_PUBLIC_KEY}" ]]; then
+    XRAY_KEYS=$(/usr/local/bin/xray x25519)
+    REALITY_PRIVATE_KEY=$(echo "${XRAY_KEYS}" | grep -i "Private" | awk '{print $NF}' | tr -d '[:space:]')
+    REALITY_PUBLIC_KEY=$(echo "${XRAY_KEYS}" | grep -i "Public" | awk '{print $NF}' | tr -d '[:space:]')
+else
     KEYS_PY=$(python3 -c "
-P = 2**255 - 19
-def inv(x): return pow(x, P - 2, P)
-def x25519(k, u=9):
-    k &= (1 << 255) - 8; k |= 1 << 254
-    x_1 = u; x_2, z_2 = 1, 0; x_3, z_3 = u, 1; swap = 0
-    for t in reversed(range(255)):
-        k_t = (k >> t) & 1; swap ^= k_t
-        if swap: x_2, x_3 = x_3, x_2; z_2, z_3 = z_3, z_2
-        swap = k_t
-        A = (x_2 + z_2) % P; AA = (A * A) % P
-        B = (x_2 - z_2) % P; BB = (B * B) % P
-        E = (AA - BB) % P
-        C = (x_3 + z_3) % P; D = (x_3 - z_3) % P
-        DA = (D * A) % P; CB = (C * B) % P
-        x_3 = pow(DA + CB, 2, P); z_3 = (x_1 * pow(DA - CB, 2, P)) % P
-        x_2 = (AA * BB) % P; z_2 = (E * (AA + 121665 * E)) % P
-    if swap: x_2, x_3 = x_3, x_2; z_2, z_3 = z_3, z_2
-    return (x_2 * inv(z_2)) % P
-import os, base64
-priv_bytes = bytearray(os.urandom(32))
-priv_bytes[0] &= 248; priv_bytes[31] &= 127; priv_bytes[31] |= 64
-k = int.from_bytes(priv_bytes, 'little')
-pub_int = x25519(k)
-pub_bytes = pub_int.to_bytes(32, 'little')
+import base64
+from cryptography.hazmat.primitives.asymmetric import x25519
+priv = x25519.X25519PrivateKey.generate()
+pub = priv.public_key()
+from cryptography.hazmat.primitives import serialization
+priv_bytes = priv.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+pub_bytes = pub.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
 priv_b64 = base64.urlsafe_b64encode(priv_bytes).decode().rstrip('=')
 pub_b64 = base64.urlsafe_b64encode(pub_bytes).decode().rstrip('=')
 print(priv_b64, pub_b64)
@@ -271,12 +406,12 @@ SS_PASSWORD=$(openssl rand -base64 16)
 HY_PASSWORD=$(openssl rand -hex 16)
 SUBSCRIPTION_TOKEN=$(openssl rand -hex 16)
 
-# Generate self-signed TLS cert for Hysteria 2 under SNI addons.mozilla.org & sslip.io
+# Generate self-signed TLS cert for Hysteria 2 under selected SNI
 SERVER_IP_DASH=$(echo "${SERVER_IP}" | tr '.' '-')
 openssl ecparam -name prime256v1 -genkey -noout -out /etc/hysteria/server.key > /dev/null 2>&1 || true
 openssl req -new -x509 -key /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 \
-  -subj "/CN=addons.mozilla.org" \
-  -addext "subjectAltName=DNS:addons.mozilla.org,DNS:${SERVER_IP_DASH}.sslip.io,IP:${SERVER_IP}" > /dev/null 2>&1 || true
+  -subj "/CN=${REALITY_SNI}" \
+  -addext "subjectAltName=DNS:${REALITY_SNI},DNS:${SERVER_IP_DASH}.sslip.io,IP:${SERVER_IP}" > /dev/null 2>&1 || true
 HY_CERT_SHA256=$(openssl x509 -in /etc/hysteria/server.crt -outform der 2>/dev/null | sha256sum 2>/dev/null | awk '{print $1}' || echo "")
 
 # 5.1. Generate Xray Server Configuration (/usr/local/etc/xray/config.json)
@@ -311,9 +446,9 @@ cat << EOF > /usr/local/etc/xray/config.json
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "addons.mozilla.org:443",
+          "dest": "${REALITY_SNI}:443",
           "xver": 0,
-          "serverNames": ["addons.mozilla.org"],
+          "serverNames": ["${REALITY_SNI}"],
           "privateKey": "${REALITY_PRIVATE_KEY}",
           "shortIds": ["${REALITY_SHORT_ID}"]
         }
@@ -340,9 +475,9 @@ cat << EOF > /usr/local/etc/xray/config.json
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "addons.mozilla.org:443",
+          "dest": "${REALITY_SNI}:443",
           "xver": 0,
-          "serverNames": ["addons.mozilla.org"],
+          "serverNames": ["${REALITY_SNI}"],
           "privateKey": "${REALITY_PRIVATE_KEY}",
           "shortIds": ["${REALITY_SHORT_ID}"]
         },
@@ -373,9 +508,9 @@ cat << EOF > /usr/local/etc/xray/config.json
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "addons.mozilla.org:443",
+          "dest": "${REALITY_SNI}:443",
           "xver": 0,
-          "serverNames": ["addons.mozilla.org"],
+          "serverNames": ["${REALITY_SNI}"],
           "privateKey": "${REALITY_PRIVATE_KEY}",
           "shortIds": ["${REALITY_SHORT_ID}"]
         },
@@ -435,7 +570,7 @@ auth:
 masquerade:
   type: proxy
   proxy:
-    url: https://addons.mozilla.org/
+    url: https://${REALITY_SNI}/
     rewriteHost: true
 EOF
 
@@ -468,7 +603,7 @@ WantedBy=multi-user.target
 EOF
 
 # Reload and start core VPN engines
-systemctl daemon-reload > /dev/null 2>&1
+systemctl daemon-reload
 systemctl enable --now xray > /dev/null 2>&1 || systemctl restart xray > /dev/null 2>&1 || true
 systemctl enable --now hysteria-server > /dev/null 2>&1 || systemctl restart hysteria-server > /dev/null 2>&1 || true
 
@@ -487,10 +622,8 @@ else
     journalctl -u hysteria-server -n 12 --no-pager 2>&1 || true
 fi
 
-# 5.3. Subscription Microservice Configuration & Python Daemon
+# 5.3. Votex Subscription Microservice Deployment
 mkdir -p /etc/votex
-
-# Write state configuration for subscription daemon
 cat << EOF > /etc/votex/config.json
 {
   "server_ip": "${SERVER_IP}",
@@ -501,6 +634,7 @@ cat << EOF > /etc/votex/config.json
   "ss_password": "${SS_PASSWORD}",
   "hy_password": "${HY_PASSWORD}",
   "hy_cert_sha256": "${HY_CERT_SHA256}",
+  "reality_sni": "${REALITY_SNI}",
   "port": 18080
 }
 EOF
@@ -537,6 +671,7 @@ def load_server_config(config_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]
         "reality_short_id": os.getenv("VOTEX_REALITY_SHORT_ID", "0123456789abcdef"),
         "ss_password": os.getenv("VOTEX_SS_PASSWORD", "dummy_sspassword"),
         "hy_password": os.getenv("VOTEX_HY_PASSWORD", "dummy_hypassword"),
+        "reality_sni": os.getenv("VOTEX_REALITY_SNI", "addons.mozilla.org"),
         "port": int(os.getenv("VOTEX_SUB_PORT", str(DEFAULT_PORT))),
     }
 
@@ -557,9 +692,11 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     uuid = cfg.get("client_uuid", "")
     pub_key = cfg.get("reality_public_key", "")
     short_id = cfg.get("reality_short_id", "")
+    sni = cfg.get("reality_sni", "addons.mozilla.org")
     hy_pass = cfg.get("hy_password", "")
     ss_pass = cfg.get("ss_password", "")
     cert_sha256 = cfg.get("hy_cert_sha256", "")
+    sni = cfg.get("reality_sni", "addons.mozilla.org")
 
     # SS-2022 userinfo base64 encoded (2022-blake3-aes-128-gcm:pass)
     ss_auth_str = f"2022-blake3-aes-128-gcm:{ss_pass}"
@@ -569,25 +706,25 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
         (
             f"vless://{uuid}@{server_ip}:20443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
-            f"&type=tcp&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid={short_id}"
+            f"&type=tcp&flow=xtls-rprx-vision&sni={sni}&sid={short_id}"
             f"#Votex-Reality-Vision"
         ),
         (
             f"vless://{uuid}@{server_ip}:2053"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
-            f"&type=xhttp&sni=addons.mozilla.org&sid={short_id}"
+            f"&type=xhttp&sni={sni}&sid={short_id}"
             f"&path=%2Fassets%2Fbuild%2F_app%2Fimmutable%2Fchunks%2Fstream-one%2F"
             f"#Votex-SplitHTTP-AntiDPI"
         ),
         (
             f"vless://{uuid}@{server_ip}:8443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
-            f"&type=grpc&serviceName=yabl1ch-grpc&sni=addons.mozilla.org&sid={short_id}"
+            f"&type=grpc&serviceName=yabl1ch-grpc&sni={sni}&sid={short_id}"
             f"#Votex-Reality-gRPC"
         ),
         (
             f"hysteria2://{hy_pass}@{server_ip}:8443"
-            f"?insecure=1&sni=addons.mozilla.org"
+            f"?insecure=1&sni={sni}"
             f"#Votex-Hysteria2-Gaming"
         ),
         (
@@ -609,6 +746,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
     hy_pass = cfg.get("hy_password", "")
     ss_pass = cfg.get("ss_password", "")
     cert_sha256 = cfg.get("hy_cert_sha256", "")
+    sni = cfg.get("reality_sni", "addons.mozilla.org")
 
     russian_domains = [
         "geosite:category-ru",
@@ -800,7 +938,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "realitySettings": {
                         "fingerprint": "firefox",
                         "publicKey": pub_key,
-                        "serverName": "addons.mozilla.org",
+                        "serverName": sni,
                         "shortId": short_id,
                         "spiderX": "/",
                     },
@@ -835,11 +973,11 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "realitySettings": {
                         "fingerprint": "firefox",
                         "publicKey": pub_key,
-                        "serverName": "addons.mozilla.org",
+                        "serverName": sni,
                         "shortId": short_id,
                     },
                     "xhttpSettings": {
-                        "host": "addons.mozilla.org",
+                        "host": sni,
                         "mode": "auto",
                         "path": "/assets/build/_app/immutable/chunks/stream-one/",
                         "extra": {
@@ -886,7 +1024,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "realitySettings": {
                         "fingerprint": "firefox",
                         "publicKey": pub_key,
-                        "serverName": "addons.mozilla.org",
+                        "serverName": sni,
                         "shortId": short_id,
                     },
                     "grpcSettings": {
@@ -917,7 +1055,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                         "alpn": ["h3"],
                         "enableSessionResumption": False,
                         "fingerprint": "firefox",
-                        "serverName": "addons.mozilla.org",
+                        "serverName": sni,
                         "allowInsecure": True,
                     },
                 },
@@ -1116,6 +1254,7 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
             )
             if is_stats_req:
                 stats_data = get_system_stats()
+                stats_data["reality_sni"] = cfg.get("reality_sni", "addons.mozilla.org")
                 resp_bytes = json.dumps(stats_data, ensure_ascii=False).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -1239,14 +1378,17 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /etc/votex/sub-service.py
+User=root
+ExecStart=/usr/bin/python3 /etc/votex/sub-service.py /etc/votex/config.json
 Restart=always
 RestartSec=3s
+LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
 EOF
-systemctl daemon-reload > /dev/null 2>&1
+
+systemctl daemon-reload
 systemctl enable --now votex-subscription > /dev/null 2>&1
 systemctl restart votex-subscription > /dev/null 2>&1 || true
 
@@ -1310,6 +1452,7 @@ cat << EOF > /var/log/votex-report.json
   "uuid": "${CLIENT_UUID}",
   "reality_public_key": "${REALITY_PUBLIC_KEY}",
   "short_id": "${REALITY_SHORT_ID}",
+  "reality_sni": "${REALITY_SNI}",
   "benchmark": {
     "latency_ms": ${PING_MS},
     "speed_mbps": ${SPEED_MBPS},
@@ -1339,6 +1482,7 @@ echo -e "${CYAN}IP сервера:             ${NC}${SERVER_IP}"
 echo -e "${CYAN}Защита Fail2ban:        ${NC}Активна (SSH порт 22, 4 попытки -> бан 24ч)"
 echo -e "${CYAN}Фаервол UFW:            ${NC}Включен (Все неиспользуемые порты закрыты)"
 echo -e "${CYAN}TCP BBR Ускорение:      ${NC}Включено (net.core.default_qdisc = fq)"
+echo -e "${CYAN}Маскировка SNI:         ${NC}${REALITY_SNI} (TLS 1.3 / HTTP/2 подтверждены)"
 echo -e "${CYAN}Задержка (Ping):        ${NC}${PING_MS} ms"
 echo -e "${CYAN}Скорость канала:        ${NC}${SPEED_MBPS} Mbps"
 echo -e "${CYAN}Протоколы All-In-One:   ${NC}Vision (20443), SplitHTTP (2053), gRPC (8443), Hysteria2 (8443), SS-2022 (2088)"
@@ -1353,4 +1497,8 @@ echo ""
 echo "VOTEX_JSON_REPORT_START"
 cat /var/log/votex-report.json
 echo "VOTEX_JSON_REPORT_END"
+
+# Mark provisioning as successful to disarm rollback trap
+PROVISION_SUCCESS=1
+trap - ERR INT TERM
 exit 0

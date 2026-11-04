@@ -51,6 +51,7 @@ export interface VotexReport {
   uuid: string;
   reality_public_key: string;
   short_id: string;
+  reality_sni?: string;
   benchmark: BenchmarkData;
   hardening: HardeningData;
 }
@@ -95,6 +96,11 @@ export interface VaultRecord {
   subscription_token: string;
   subscription_url: string;
   updated_at: string;
+  host_key_fingerprint?: string;
+  sni_domain?: string;
+  client_uuid?: string;
+  reality_public_key?: string;
+  short_id?: string;
 }
 
 export interface GitHubReleaseInfo {

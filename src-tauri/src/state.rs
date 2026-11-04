@@ -42,6 +42,8 @@ pub struct VotexReport {
     pub uuid: String,
     pub reality_public_key: String,
     pub short_id: String,
+    #[serde(default)]
+    pub reality_sni: Option<String>,
     pub benchmark: BenchmarkReport,
     pub hardening: HardeningReport,
 }

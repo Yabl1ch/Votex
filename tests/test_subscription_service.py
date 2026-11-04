@@ -82,6 +82,24 @@ class TestSubscriptionService(unittest.TestCase):
         self.assertIn("198.51.100.42:2088", ss_link)
         self.assertIn("Votex-Shadowsocks-2022", ss_link)
 
+    def test_dynamic_reality_sni_in_subscription(self):
+        """Verify dynamic SNI is populated in base64 links and JSON profile."""
+        custom_cfg = dict(self.sample_config, reality_sni="www.microsoft.com")
+        b64 = sub_service.build_base64_subscription(custom_cfg)
+        decoded = base64.b64decode(b64.encode("utf-8")).decode("utf-8")
+        self.assertIn("sni=www.microsoft.com", decoded)
+
+        profile = sub_service.build_json_profile(custom_cfg)
+        outbound_map = {ob["tag"]: ob for ob in profile["outbounds"]}
+        self.assertEqual(
+            outbound_map["vision"]["streamSettings"]["realitySettings"]["serverName"],
+            "www.microsoft.com",
+        )
+        self.assertEqual(
+            outbound_map["hy2"]["streamSettings"]["tlsSettings"]["serverName"],
+            "www.microsoft.com",
+        )
+
     def test_build_json_profile(self):
         """Verify full JSON profile conforms to Xray and sing-box specifications."""
         profile = sub_service.build_json_profile(self.sample_config)

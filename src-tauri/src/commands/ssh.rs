@@ -1,4 +1,6 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tokio::time::timeout;
@@ -9,17 +11,89 @@ const EMBEDDED_INSTALL_SCRIPT: &str = include_str!("../../../scripts/votex-insta
 const START_MARKER: &str = "VOTEX_JSON_REPORT_START";
 const END_MARKER: &str = "VOTEX_JSON_REPORT_END";
 
-struct SshClientHandler;
+fn dirs_or_home_dir() -> PathBuf {
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        PathBuf::from(appdata)
+    } else if let Ok(userprofile) = std::env::var("USERPROFILE") {
+        PathBuf::from(userprofile)
+    } else if let Ok(home) = std::env::var("HOME") {
+        PathBuf::from(home)
+    } else {
+        std::env::temp_dir()
+    }
+}
 
-impl russh::client::Handler for SshClientHandler {
+pub fn known_hosts_path() -> PathBuf {
+    let mut path = dirs_or_home_dir();
+    path.push(".votex");
+    let _ = std::fs::create_dir_all(&path);
+    path.push("known_hosts.json");
+    path
+}
+
+pub fn load_known_hosts() -> HashMap<String, String> {
+    let path = known_hosts_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        HashMap::new()
+    }
+}
+
+pub fn save_known_host(host: &str, port: u16, fingerprint: &str) {
+    let mut map = load_known_hosts();
+    map.insert(format!("{}:{}", host, port), fingerprint.to_string());
+    if let Ok(json) = serde_json::to_string_pretty(&map) {
+        let _ = std::fs::write(known_hosts_path(), json);
+    }
+}
+
+pub struct StrictHostKeyVerifier {
+    pub host: String,
+    pub port: u16,
+    pub detected_fingerprint: Arc<Mutex<Option<String>>>,
+    pub verification_error: Arc<Mutex<Option<String>>>,
+    pub is_tofu: Arc<Mutex<bool>>,
+}
+
+impl russh::client::Handler for StrictHostKeyVerifier {
     type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::ssh_key::PublicKey,
+        server_public_key: &russh::keys::ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
-        // Accept new target server key during initial VPS provisioning
-        Ok(true)
+        let fp = server_public_key
+            .fingerprint(russh::keys::ssh_key::HashAlg::Sha256)
+            .to_string();
+
+        if let Ok(mut df) = self.detected_fingerprint.lock() {
+            *df = Some(fp.clone());
+        }
+
+        let host_key = format!("{}:{}", self.host, self.port);
+        let known = load_known_hosts();
+
+        if let Some(expected_fp) = known.get(&host_key) {
+            if expected_fp == &fp {
+                Ok(true)
+            } else {
+                let err = format!(
+                    "КРИТИЧЕСКОЕ ПРЕДУПРЕЖДЕНИЕ БЕЗОПАСНОСТИ: SSH Host Key сервера {} изменился!\nОжидался: {}\nПолучен: {}\nВозможна атака Man-in-the-Middle (MitM) или переустановка VPS. Соединение заблокировано.",
+                    host_key, expected_fp, fp
+                );
+                if let Ok(mut ve) = self.verification_error.lock() {
+                    *ve = Some(err);
+                }
+                Ok(false)
+            }
+        } else {
+            // Trust On First Use (TOFU)
+            if let Ok(mut tofu) = self.is_tofu.lock() {
+                *tofu = true;
+            }
+            Ok(true)
+        }
     }
 }
 
@@ -75,14 +149,25 @@ pub async fn run_provisioning(
         let _ = app.emit("ssh-log", msg);
     };
 
-    emit_log(format!("[1/7] Установка безопасного SSH-соединения с {}:{}...", host, port));
+    emit_log(format!("[1/7] Установка защищенного SSH-соединения с {}:{}...", host, port));
 
     let config = Arc::new(russh::client::Config {
         inactivity_timeout: Some(Duration::from_secs(300)),
         ..Default::default()
     });
 
-    let handler = SshClientHandler;
+    let detected_fingerprint = Arc::new(Mutex::new(None));
+    let verification_error = Arc::new(Mutex::new(None));
+    let is_tofu = Arc::new(Mutex::new(false));
+
+    let handler = StrictHostKeyVerifier {
+        host: host.clone(),
+        port,
+        detected_fingerprint: Arc::clone(&detected_fingerprint),
+        verification_error: Arc::clone(&verification_error),
+        is_tofu: Arc::clone(&is_tofu),
+    };
+
     let mut session = match timeout(
         Duration::from_secs(15),
         russh::client::connect(config, (host.as_str(), port), handler),
@@ -94,6 +179,12 @@ pub async fn run_provisioning(
             if let Ok(mut in_progress) = state.is_provisioning.lock() {
                 *in_progress = false;
             }
+            if let Ok(guard) = verification_error.lock() {
+                if let Some(ref err_msg) = *guard {
+                    emit_log(format!("[CRITICAL] {}", err_msg));
+                    return Err(err_msg.clone());
+                }
+            }
             return Err(format!("Ошибка подключения по SSH к {}:{}: {}", host, port, e));
         }
         Err(_) => {
@@ -103,6 +194,18 @@ pub async fn run_provisioning(
             return Err(format!("Таймаут подключения (15 сек) к {}:{}", host, port));
         }
     };
+
+    let detected_fp = detected_fingerprint.lock().ok().and_then(|g| g.clone());
+    let tofu_active = is_tofu.lock().map(|g| *g).unwrap_or(false);
+
+    if let Some(ref fp) = detected_fp {
+        if tofu_active {
+            emit_log(format!("[SECURITY] Зафиксирован доверенный SSH Host Key (TOFU): {}", fp));
+            save_known_host(&host, port, fp);
+        } else {
+            emit_log(format!("[SECURITY] SSH Host Key проверен и валиден: {}", fp));
+        }
+    }
 
     emit_log("[1/7] Аутентификация пользователя...".to_string());
     let auth_result = session.authenticate_password(&username, &password).await;
@@ -131,7 +234,6 @@ pub async fn run_provisioning(
         .await
         .map_err(|e| format!("Не удалось открыть SSH-канал сессии: {}", e))?;
 
-    // Execute shell pipeline: pass port, read script from stdin into /tmp/votex-install.sh, strip carriage returns, chmod +x, and run bash
     let exec_cmd = format!(
         "export VOTEX_SSH_PORT={} && tr -d '\\r' > /tmp/votex-install.sh && chmod +x /tmp/votex-install.sh && bash /tmp/votex-install.sh",
         port
@@ -141,7 +243,6 @@ pub async fn run_provisioning(
         .await
         .map_err(|e| format!("Ошибка запуска установщика на сервере: {}", e))?;
 
-    // Normalize script line endings and stream script content to channel stdin
     let clean_script = EMBEDDED_INSTALL_SCRIPT.replace("\r\n", "\n").replace('\r', "\n");
     let script_bytes = clean_script.into_bytes();
 
@@ -209,7 +310,7 @@ pub async fn run_provisioning(
         *current_report = Some(report.clone());
     }
 
-    // Save to Encrypted Vault
+    // Save to Encrypted Vault with complete metadata
     if let Ok(vault) = state.vault.lock() {
         let vault_record = VaultRecord {
             host: report.server_ip.clone(),
@@ -218,6 +319,11 @@ pub async fn run_provisioning(
             subscription_token: report.subscription_token.clone(),
             subscription_url: report.subscription_url.clone(),
             updated_at: chrono::Utc::now().to_rfc3339(),
+            host_key_fingerprint: detected_fp,
+            sni_domain: report.reality_sni.clone(),
+            client_uuid: Some(report.uuid.clone()),
+            reality_public_key: Some(report.reality_public_key.clone()),
+            short_id: Some(report.short_id.clone()),
         };
         if let Err(e) = vault.save_record(&vault_record) {
             emit_log(format!("[WARN] Не удалось сохранить учетные данные в Vault: {}", e));
@@ -227,6 +333,273 @@ pub async fn run_provisioning(
     }
 
     Ok(report)
+}
+
+#[tauri::command]
+pub async fn rotate_server_keys(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    host: String,
+    port: u16,
+    username: String,
+    password: Option<String>,
+) -> Result<String, String> {
+    let host = host.trim().to_string();
+    let username = if username.trim().is_empty() {
+        "root".to_string()
+    } else {
+        username.trim().to_string()
+    };
+
+    let password = password.unwrap_or_default();
+    if password.is_empty() {
+        return Err("Пароль для подключения по SSH не может быть пустым".to_string());
+    }
+
+    let emit_log = |msg: String| {
+        let _ = app.emit("ssh-log", msg);
+    };
+
+    emit_log(format!("[KEY-ROTATION] Подключение к {}:{} для безопасной ротации ключей...", host, port));
+
+    let config = Arc::new(russh::client::Config {
+        inactivity_timeout: Some(Duration::from_secs(60)),
+        ..Default::default()
+    });
+
+    let detected_fingerprint = Arc::new(Mutex::new(None));
+    let verification_error = Arc::new(Mutex::new(None));
+    let is_tofu = Arc::new(Mutex::new(false));
+
+    let handler = StrictHostKeyVerifier {
+        host: host.clone(),
+        port,
+        detected_fingerprint: Arc::clone(&detected_fingerprint),
+        verification_error: Arc::clone(&verification_error),
+        is_tofu: Arc::clone(&is_tofu),
+    };
+
+    let mut session = match timeout(
+        Duration::from_secs(15),
+        russh::client::connect(config, (host.as_str(), port), handler),
+    )
+    .await
+    {
+        Ok(Ok(handle)) => handle,
+        Ok(Err(e)) => {
+            if let Ok(guard) = verification_error.lock() {
+                if let Some(ref err_msg) = *guard {
+                    emit_log(format!("[CRITICAL] {}", err_msg));
+                    return Err(err_msg.clone());
+                }
+            }
+            return Err(format!("Ошибка подключения по SSH к {}:{}: {}", host, port, e));
+        }
+        Err(_) => return Err(format!("Таймаут подключения (15 сек) к {}:{}", host, port)),
+    };
+
+    let auth_result = session.authenticate_password(&username, &password).await;
+    match auth_result {
+        Ok(russh::client::AuthResult::Success) => {
+            emit_log("[KEY-ROTATION] Аутентификация успешна. Выполнение генерации новых криптографических ключей...".to_string());
+        }
+        _ => return Err("Ошибка аутентификации SSH при ротации ключей".to_string()),
+    }
+
+    let channel = session
+        .channel_open_session()
+        .await
+        .map_err(|e| format!("Не удалось открыть SSH-канал сессии: {}", e))?;
+
+    let rotation_cmd = r#"
+bash -c '
+set -euo pipefail
+CONFIG_FILE="/etc/votex/config.json"
+XRAY_CONFIG="/usr/local/etc/xray/config.json"
+HY_CONFIG="/etc/hysteria/config.yaml"
+
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "ERROR: Votex config not found at $CONFIG_FILE"
+    exit 1
+fi
+
+SERVER_IP=$(python3 -c "import json; print(json.load(open(\"$CONFIG_FILE\")).get(\"server_ip\", \"127.0.0.1\"))")
+REALITY_SNI=$(python3 -c "import json; print(json.load(open(\"$CONFIG_FILE\")).get(\"reality_sni\", \"addons.mozilla.org\"))")
+HY_CERT_SHA256=$(python3 -c "import json; print(json.load(open(\"$CONFIG_FILE\")).get(\"hy_cert_sha256\", \"\"))")
+
+NEW_UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || python3 -c "import uuid; print(uuid.uuid4())")
+NEW_SHORT_ID=$(openssl rand -hex 8)
+NEW_SS_PASS=$(openssl rand -base64 16)
+NEW_HY_PASS=$(openssl rand -hex 16)
+NEW_TOKEN=$(openssl rand -hex 16)
+
+# Generate new Reality keys
+if [[ -x /usr/local/bin/xray ]]; then
+    XRAY_KEYS=$(/usr/local/bin/xray x25519)
+    NEW_PRIVKEY=$(echo "$XRAY_KEYS" | grep -i "Private" | awk "{print \$NF}" | tr -d "[:space:]")
+    NEW_PUBKEY=$(echo "$XRAY_KEYS" | grep -i "Public" | awk "{print \$NF}" | tr -d "[:space:]")
+else
+    NEW_PRIVKEY=$(openssl rand -base64 32)
+    NEW_PUBKEY=$(openssl rand -base64 32)
+fi
+
+# Update /etc/votex/config.json
+cat << EOF > "$CONFIG_FILE"
+{
+  "server_ip": "${SERVER_IP}",
+  "subscription_token": "${NEW_TOKEN}",
+  "client_uuid": "${NEW_UUID}",
+  "reality_public_key": "${NEW_PUBKEY}",
+  "reality_short_id": "${NEW_SHORT_ID}",
+  "ss_password": "${NEW_SS_PASS}",
+  "hy_password": "${NEW_HY_PASS}",
+  "hy_cert_sha256": "${HY_CERT_SHA256}",
+  "reality_sni": "${REALITY_SNI}",
+  "port": 18080
+}
+EOF
+
+# Update Xray config if present
+if [[ -f "$XRAY_CONFIG" ]]; then
+    python3 -c "
+import json
+with open(\"$XRAY_CONFIG\", \"r\") as f:
+    xc = json.load(f)
+for ib in xc.get(\"inbounds\", []):
+    proto = ib.get(\"protocol\", \"\")
+    if proto == \"vless\":
+        for c in ib.get(\"settings\", {}).get(\"clients\", []):
+            c[\"id\"] = \"$NEW_UUID\"
+        rs = ib.get(\"streamSettings\", {}).get(\"realitySettings\", {})
+        if rs:
+            rs[\"privateKey\"] = \"$NEW_PRIVKEY\"
+            rs[\"shortIds\"] = [\"$NEW_SHORT_ID\"]
+            rs[\"serverNames\"] = [\"$REALITY_SNI\"]
+            rs[\"dest\"] = \"$REALITY_SNI:443\"
+    elif proto == \"shadowsocks\":
+        ib[\"settings\"][\"password\"] = \"$NEW_SS_PASS\"
+with open(\"$XRAY_CONFIG\", \"w\") as f:
+    json.dump(xc, f, indent=2)
+"
+fi
+
+# Update Hysteria 2 config if present
+if [[ -f "$HY_CONFIG" ]]; then
+    sed -i "s/password:.*/password: \"${NEW_HY_PASS}\"/" "$HY_CONFIG"
+fi
+
+# Restart services
+systemctl restart xray hysteria-server votex-subscription 2>/dev/null || true
+sleep 1
+
+echo "VOTEX_ROTATION_SUCCESS"
+echo "NEW_TOKEN:${NEW_TOKEN}"
+echo "NEW_URL:http://${SERVER_IP}:18080/sub/${NEW_TOKEN}"
+echo "NEW_PUBKEY:${NEW_PUBKEY}"
+echo "NEW_SHORT_ID:${NEW_SHORT_ID}"
+echo "NEW_UUID:${NEW_UUID}"
+echo "REALITY_SNI:${REALITY_SNI}"
+'
+"#;
+
+    let mut channel = channel;
+    channel
+        .exec(true, rotation_cmd)
+        .await
+        .map_err(|e| format!("Ошибка выполнения ротации ключей на сервере: {}", e))?;
+
+    let mut output = String::new();
+    while let Some(msg) = channel.wait().await {
+        match msg {
+            russh::ChannelMsg::Data { ref data } => {
+                let text = String::from_utf8_lossy(data).to_string();
+                output.push_str(&text);
+                for line in text.lines() {
+                    emit_log(line.to_string());
+                }
+            }
+            russh::ChannelMsg::ExtendedData { ref data, .. } => {
+                let text = String::from_utf8_lossy(data).to_string();
+                output.push_str(&text);
+                for line in text.lines() {
+                    emit_log(format!("[STDERR] {}", line));
+                }
+            }
+            russh::ChannelMsg::Eof | russh::ChannelMsg::Close => break,
+            _ => {}
+        }
+    }
+
+    if !output.contains("VOTEX_ROTATION_SUCCESS") {
+        return Err("Сервер не подтвердил успешную ротацию ключей. Проверьте логи терминала.".to_string());
+    }
+
+    let mut new_token = String::new();
+    let mut new_url = String::new();
+    let mut new_pubkey = String::new();
+    let mut new_short_id = String::new();
+    let mut new_uuid = String::new();
+    let mut sni = String::new();
+
+    for line in output.lines() {
+        if let Some(val) = line.strip_prefix("NEW_TOKEN:") {
+            new_token = val.trim().to_string();
+        } else if let Some(val) = line.strip_prefix("NEW_URL:") {
+            new_url = val.trim().to_string();
+        } else if let Some(val) = line.strip_prefix("NEW_PUBKEY:") {
+            new_pubkey = val.trim().to_string();
+        } else if let Some(val) = line.strip_prefix("NEW_SHORT_ID:") {
+            new_short_id = val.trim().to_string();
+        } else if let Some(val) = line.strip_prefix("NEW_UUID:") {
+            new_uuid = val.trim().to_string();
+        } else if let Some(val) = line.strip_prefix("REALITY_SNI:") {
+            sni = val.trim().to_string();
+        }
+    }
+
+    if new_url.is_empty() {
+        new_url = format!("http://{}:18080/sub/{}", host, new_token);
+    }
+
+    let detected_fp = detected_fingerprint.lock().ok().and_then(|g| g.clone());
+
+    // Update Vault record
+    if let Ok(vault) = state.vault.lock() {
+        let vault_record = VaultRecord {
+            host: host.clone(),
+            port,
+            username: username.clone(),
+            subscription_token: new_token.clone(),
+            subscription_url: new_url.clone(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+            host_key_fingerprint: detected_fp,
+            sni_domain: if sni.is_empty() { None } else { Some(sni) },
+            client_uuid: if new_uuid.is_empty() { None } else { Some(new_uuid.clone()) },
+            reality_public_key: if new_pubkey.is_empty() { None } else { Some(new_pubkey.clone()) },
+            short_id: if new_short_id.is_empty() { None } else { Some(new_short_id.clone()) },
+        };
+        let _ = vault.save_record(&vault_record);
+    }
+
+    // Update Report in state if present
+    if let Ok(mut current_report) = state.current_report.lock() {
+        if let Some(ref mut rep) = *current_report {
+            rep.subscription_token = new_token;
+            rep.subscription_url = new_url.clone();
+            if !new_pubkey.is_empty() {
+                rep.reality_public_key = new_pubkey;
+            }
+            if !new_short_id.is_empty() {
+                rep.short_id = new_short_id;
+            }
+            if !new_uuid.is_empty() {
+                rep.uuid = new_uuid;
+            }
+        }
+    }
+
+    emit_log(format!("[KEY-ROTATION] Ротация ключей успешно завершена! Новый URL подписки: {}", new_url));
+    Ok(new_url)
 }
 
 #[cfg(test)]
@@ -247,6 +620,7 @@ VOTEX_JSON_REPORT_START
   "uuid": "11111111-2222-3333-4444-555555555555",
   "reality_public_key": "pub_key_xyz",
   "short_id": "short_123",
+  "reality_sni": "addons.mozilla.org",
   "benchmark": {
     "latency_ms": 32,
     "speed_mbps": 480,
@@ -262,7 +636,7 @@ VOTEX_JSON_REPORT_START
     "tcp_bbr": true,
     "fail2ban": true,
     "ufw": true,
-    "allowed_ports": [22, 20444, 20443, 2053, 8443, 2083, 2088, 18080]
+    "allowed_ports": [22, 20443, 2053, 8443, 2083, 2088, 18080]
   }
 }
 VOTEX_JSON_REPORT_END
@@ -273,10 +647,11 @@ VOTEX_JSON_REPORT_END
         assert_eq!(report.status, "success");
         assert_eq!(report.server_ip, "185.120.45.10");
         assert_eq!(report.subscription_token, "test_token_abc");
+        assert_eq!(report.reality_sni, Some("addons.mozilla.org".to_string()));
         assert_eq!(report.benchmark.latency_ms, 32);
         assert_eq!(report.benchmark.speed_mbps, 480);
         assert_eq!(report.benchmark.protocols.vision.port, 20443);
-        assert_eq!(report.hardening.allowed_ports.len(), 8);
+        assert_eq!(report.hardening.allowed_ports.len(), 7);
         assert!(report.hardening.tcp_bbr);
     }
 
@@ -294,5 +669,17 @@ VOTEX_JSON_REPORT_END
         let result = extract_json_report(bad_output);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("VOTEX_JSON_REPORT_END"));
+    }
+
+    #[test]
+    fn test_known_hosts_save_and_load() {
+        let host = "test-host.votex.internal";
+        let port = 2222;
+        let fp = "SHA256:FakeTestFingerprint1234567890abcdef";
+
+        save_known_host(host, port, fp);
+        let loaded = load_known_hosts();
+        let key = format!("{}:{}", host, port);
+        assert_eq!(loaded.get(&key), Some(&fp.to_string()));
     }
 }

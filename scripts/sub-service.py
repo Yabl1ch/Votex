@@ -28,6 +28,7 @@ def load_server_config(config_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]
         "reality_short_id": os.getenv("VOTEX_REALITY_SHORT_ID", "0123456789abcdef"),
         "ss_password": os.getenv("VOTEX_SS_PASSWORD", "dummy_sspassword"),
         "hy_password": os.getenv("VOTEX_HY_PASSWORD", "dummy_hypassword"),
+        "reality_sni": os.getenv("VOTEX_REALITY_SNI", "addons.mozilla.org"),
         "port": int(os.getenv("VOTEX_SUB_PORT", str(DEFAULT_PORT))),
     }
 
@@ -48,9 +49,11 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     uuid = cfg.get("client_uuid", "")
     pub_key = cfg.get("reality_public_key", "")
     short_id = cfg.get("reality_short_id", "")
+    sni = cfg.get("reality_sni", "addons.mozilla.org")
     hy_pass = cfg.get("hy_password", "")
     ss_pass = cfg.get("ss_password", "")
     cert_sha256 = cfg.get("hy_cert_sha256", "")
+    sni = cfg.get("reality_sni", "addons.mozilla.org")
 
     # SS-2022 userinfo base64 encoded (2022-blake3-aes-128-gcm:pass)
     ss_auth_str = f"2022-blake3-aes-128-gcm:{ss_pass}"
@@ -60,25 +63,25 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
         (
             f"vless://{uuid}@{server_ip}:20443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
-            f"&type=tcp&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid={short_id}"
+            f"&type=tcp&flow=xtls-rprx-vision&sni={sni}&sid={short_id}"
             f"#Votex-Reality-Vision"
         ),
         (
             f"vless://{uuid}@{server_ip}:2053"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
-            f"&type=xhttp&sni=addons.mozilla.org&sid={short_id}"
+            f"&type=xhttp&sni={sni}&sid={short_id}"
             f"&path=%2Fassets%2Fbuild%2F_app%2Fimmutable%2Fchunks%2Fstream-one%2F"
             f"#Votex-SplitHTTP-AntiDPI"
         ),
         (
             f"vless://{uuid}@{server_ip}:8443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
-            f"&type=grpc&serviceName=yabl1ch-grpc&sni=addons.mozilla.org&sid={short_id}"
+            f"&type=grpc&serviceName=yabl1ch-grpc&sni={sni}&sid={short_id}"
             f"#Votex-Reality-gRPC"
         ),
         (
             f"hysteria2://{hy_pass}@{server_ip}:8443"
-            f"?insecure=1&sni=addons.mozilla.org"
+            f"?insecure=1&sni={sni}"
             f"#Votex-Hysteria2-Gaming"
         ),
         (
@@ -100,6 +103,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
     hy_pass = cfg.get("hy_password", "")
     ss_pass = cfg.get("ss_password", "")
     cert_sha256 = cfg.get("hy_cert_sha256", "")
+    sni = cfg.get("reality_sni", "addons.mozilla.org")
 
     russian_domains = [
         "geosite:category-ru",
@@ -291,7 +295,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "realitySettings": {
                         "fingerprint": "firefox",
                         "publicKey": pub_key,
-                        "serverName": "addons.mozilla.org",
+                        "serverName": sni,
                         "shortId": short_id,
                         "spiderX": "/",
                     },
@@ -326,11 +330,11 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "realitySettings": {
                         "fingerprint": "firefox",
                         "publicKey": pub_key,
-                        "serverName": "addons.mozilla.org",
+                        "serverName": sni,
                         "shortId": short_id,
                     },
                     "xhttpSettings": {
-                        "host": "addons.mozilla.org",
+                        "host": sni,
                         "mode": "auto",
                         "path": "/assets/build/_app/immutable/chunks/stream-one/",
                         "extra": {
@@ -377,7 +381,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "realitySettings": {
                         "fingerprint": "firefox",
                         "publicKey": pub_key,
-                        "serverName": "addons.mozilla.org",
+                        "serverName": sni,
                         "shortId": short_id,
                     },
                     "grpcSettings": {
@@ -408,7 +412,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                         "alpn": ["h3"],
                         "enableSessionResumption": False,
                         "fingerprint": "firefox",
-                        "serverName": "addons.mozilla.org",
+                        "serverName": sni,
                         "allowInsecure": True,
                     },
                 },
@@ -607,6 +611,7 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
             )
             if is_stats_req:
                 stats_data = get_system_stats()
+                stats_data["reality_sni"] = cfg.get("reality_sni", "addons.mozilla.org")
                 resp_bytes = json.dumps(stats_data, ensure_ascii=False).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")

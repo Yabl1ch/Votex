@@ -11,18 +11,22 @@ import {
   ShieldCheck,
   Radio,
   Layers,
+  KeyRound,
 } from "lucide-react";
 import QRCode from "qrcode";
 import { BentoGrid, BentoCard, GlassButton, StatusBadge } from "../components/bento";
 import { useAppStore } from "../store";
 
 export const SubscriptionPage: React.FC = () => {
-  const { report, regenerateToken } = useAppStore();
+  const { report, regenerateToken, rotateServerKeysAction, vpsConfig } = useAppStore();
   const [copiedLink, setCopiedLink] = useState(false);
   const [tokenRegenerating, setTokenRegenerating] = useState(false);
+  const [keyRotating, setKeyRotating] = useState(false);
   const [tokenFeedback, setTokenFeedback] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [pwdInput, setPwdInput] = useState("");
 
   const subUrl = report?.subscription_url || "";
   const hasSub = Boolean(report && subUrl);
@@ -86,6 +90,30 @@ export const SubscriptionPage: React.FC = () => {
     }
   };
 
+  const handleRotateKeys = async (overridePwd?: string) => {
+    if (!hasSub) return;
+    const pwd = overridePwd || vpsConfig.password || pwdInput;
+    if (!pwd) {
+      setShowPasswordModal(true);
+      return;
+    }
+
+    setKeyRotating(true);
+    setTokenFeedback(null);
+    try {
+      await rotateServerKeysAction(pwd);
+      setShowPasswordModal(false);
+      setTokenFeedback("Ключи Reality, Hysteria и токен подписки успешно перегенерированы на сервере!");
+      setTimeout(() => setTokenFeedback(null), 4500);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setTokenFeedback(`Ошибка ротации: ${msg}`);
+      setTimeout(() => setTokenFeedback(null), 5000);
+    } finally {
+      setKeyRotating(false);
+    }
+  };
+
   return (
     <div className="space-y-4 animate-fadeIn">
       {/* Page Header - Perfectly Aligned with Bento Grid */}
@@ -129,11 +157,17 @@ export const SubscriptionPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="p-3 rounded-xl bg-[rgba(8,20,15,0.7)] border border-[rgba(74,222,128,0.12)]">
                 <span className="text-xs text-[#A7F3D0]/60 uppercase block">Токен доступа</span>
                 <span className="text-sm font-mono text-[#ECFDF5] truncate block mt-0.5">
-                  {report?.subscription_token ? `${report.subscription_token.substring(0, 16)}...` : "—"}
+                  {report?.subscription_token ? `${report.subscription_token.substring(0, 12)}...` : "—"}
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-[rgba(8,20,15,0.7)] border border-[rgba(74,222,128,0.12)]">
+                <span className="text-xs text-[#A7F3D0]/60 uppercase block">SNI Маскировка</span>
+                <span className="text-sm font-mono text-[#4ADE80] truncate block mt-0.5" title="Проверен TLS 1.3 и ALPN HTTP/2">
+                  {report?.reality_sni || "addons.mozilla.org"}
                 </span>
               </div>
               <div className="p-3 rounded-xl bg-[rgba(8,20,15,0.7)] border border-[rgba(74,222,128,0.12)]">
@@ -149,7 +183,7 @@ export const SubscriptionPage: React.FC = () => {
               </div>
             )}
 
-            {/* Action Buttons: 2 Neat Rows (Primary Full Width + 2 Secondary Actions Grid) */}
+            {/* Action Buttons: Primary Full Width + Secondary Actions Grid */}
             <div className="space-y-2.5 pt-2">
               {/* Row 1: Primary Action Button (Full Width) */}
               <div>
@@ -168,12 +202,12 @@ export const SubscriptionPage: React.FC = () => {
                     : "Ссылка недоступна (настройте сервер)"}
                 </GlassButton>
                 <span className="text-[11px] text-[#A7F3D0]/70 block mt-1 text-center">
-                  Включает Votex-auto и 5 протоколов обхода блокировок (всего 6 конфигураций)
+                  Включает 5 протоколов обхода блокировок (Vision, SplitHTTP, gRPC, Hysteria 2, Shadowsocks-2022)
                 </span>
               </div>
 
-              {/* Row 2: Secondary Actions (2 Equal Columns Grid) */}
-              <div className="grid grid-cols-2 gap-2.5">
+              {/* Row 2: Secondary Actions Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <GlassButton
                   variant="secondary"
                   size="md"
@@ -196,7 +230,52 @@ export const SubscriptionPage: React.FC = () => {
                 >
                   Обновить токен
                 </GlassButton>
+
+                <GlassButton
+                  variant="secondary"
+                  size="md"
+                  onClick={() => handleRotateKeys()}
+                  disabled={!hasSub}
+                  loading={keyRotating}
+                  icon={<KeyRound className={`w-4 h-4 text-[#4ADE80] ${keyRotating ? "animate-spin" : ""}`} />}
+                  className="w-full whitespace-nowrap text-xs"
+                >
+                  Ротация ключей
+                </GlassButton>
               </div>
+
+              {showPasswordModal && (
+                <div className="p-3.5 rounded-xl bg-[rgba(8,20,15,0.9)] border border-[rgba(74,222,128,0.3)] space-y-2 mt-2">
+                  <span className="text-xs text-[#A7F3D0] block">
+                    Введите пароль root SSH для безопасного обновления ключей на сервере:
+                  </span>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={pwdInput}
+                      onChange={(e) => setPwdInput(e.target.value)}
+                      placeholder="Пароль SSH"
+                      className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-[rgba(6,16,12,0.8)] border border-[rgba(74,222,128,0.2)] text-[#ECFDF5] focus:outline-none focus:border-[#4ADE80]"
+                    />
+                    <GlassButton
+                      variant="primary"
+                      size="sm"
+                      onClick={() => handleRotateKeys(pwdInput)}
+                      className="whitespace-nowrap text-xs"
+                    >
+                      Подтвердить
+                    </GlassButton>
+                    <GlassButton
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowPasswordModal(false)}
+                      className="whitespace-nowrap text-xs"
+                    >
+                      Отмена
+                    </GlassButton>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Expandable Mobile QR-Code View */}
@@ -206,7 +285,7 @@ export const SubscriptionPage: React.FC = () => {
                   Сканирование для мобильных устройств
                 </span>
                 <p className="text-xs text-[#A7F3D0]/70 mb-3 max-w-sm">
-                  Откройте приложение Happ на телефоне и отсканируйте QR-код для добавления всех 6 конфигураций:
+                  Откройте приложение Happ на телефоне и отсканируйте QR-код для добавления всех 5 протоколов:
                 </p>
 
                 {qrDataUrl ? (
@@ -224,7 +303,7 @@ export const SubscriptionPage: React.FC = () => {
                 )}
 
                 <div className="mt-3 text-xs font-mono text-[#6EE7B7]">
-                  Профиль: Votex (6 конфигураций: Votex-auto + 5 протоколов)
+                  Профиль: Votex (5 протоколов: Vision, SplitHTTP, gRPC, Hysteria 2, Shadowsocks-2022)
                 </div>
               </div>
             )}

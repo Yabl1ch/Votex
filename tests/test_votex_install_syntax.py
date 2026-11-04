@@ -143,6 +143,30 @@ class TestVotexInstallScript(unittest.TestCase):
             f"Found forbidden Unicode emojis in scripts/sub-service.py: {sub_service_emojis}",
         )
 
+    def test_rollback_trap_and_cleanup_routine(self):
+        """Ensure automatic failure rollback mechanism and traps are present."""
+        self.assertIn("rollback_installation()", self.script_content)
+        self.assertIn("trap 'rollback_installation $? $LINENO' ERR INT TERM", self.script_content)
+        self.assertIn("PROVISION_SUCCESS=0", self.script_content)
+        self.assertIn("PROVISION_SUCCESS=1", self.script_content)
+        self.assertIn("systemctl stop xray hysteria-server votex-subscription", self.script_content)
+        self.assertIn("ufw allow \"${SSH_PORT}/tcp\"", self.script_content)
+
+    def test_sni_dynamic_selection_routine(self):
+        """Ensure pre-deployment SNI validation (TLS 1.3 + ALPN h2) is configured."""
+        self.assertIn("select_best_sni()", self.script_content)
+        self.assertIn("REALITY_SNI", self.script_content)
+        self.assertIn("openssl s_client -connect", self.script_content)
+        self.assertIn("alpn h2", self.script_content)
+        self.assertIn("tls1_3", self.script_content)
+
+    def test_port_conflict_resolution_and_distro_checks(self):
+        """Ensure port conflicts and distro/systemd checks exist."""
+        self.assertIn("check_and_resolve_port_conflicts()", self.script_content)
+        self.assertIn("fuser -k -n", self.script_content)
+        self.assertIn("/etc/os-release", self.script_content)
+        self.assertIn("pidof systemd", self.script_content)
+
 
 if __name__ == "__main__":
     unittest.main()
