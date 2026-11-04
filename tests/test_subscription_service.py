@@ -48,7 +48,7 @@ class TestSubscriptionService(unittest.TestCase):
         # Check 1: Votex-auto link (top item)
         auto_link = links[0]
         self.assertTrue(auto_link.startswith("vless://"))
-        self.assertIn("198.51.100.42:20444", auto_link)
+        self.assertIn("198.51.100.42:20443", auto_link)
         self.assertIn("flow=xtls-rprx-vision", auto_link)
         self.assertIn("Votex-auto", auto_link)
 
@@ -79,7 +79,7 @@ class TestSubscriptionService(unittest.TestCase):
         # Check 5: Hysteria 2 link
         hy2_link = links[4]
         self.assertTrue(hy2_link.startswith("hysteria2://"))
-        self.assertIn("198.51.100.42:2083", hy2_link)
+        self.assertIn("198.51.100.42:8443", hy2_link)
         self.assertIn("secret_hy_pass_2026", hy2_link)
         self.assertIn("Votex-Hysteria2-Gaming", hy2_link)
 

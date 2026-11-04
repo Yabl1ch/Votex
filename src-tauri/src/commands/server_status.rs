@@ -74,12 +74,12 @@ pub async fn fetch_server_metrics(host: String, token: Option<String>) -> Result
         _ => false,
     };
 
-    // Check Reality port 20444 or 20443
-    let reality_addr_auto = format!("{}:20444", host);
+    // Check Reality port 20443 (or legacy 20444)
     let reality_addr_vision = format!("{}:20443", host);
-    let reality_active = match timeout(Duration::from_secs(2), TcpStream::connect(&reality_addr_auto)).await {
+    let reality_addr_auto = format!("{}:20444", host);
+    let reality_active = match timeout(Duration::from_secs(2), TcpStream::connect(&reality_addr_vision)).await {
         Ok(Ok(_)) => true,
-        _ => match timeout(Duration::from_secs(2), TcpStream::connect(&reality_addr_vision)).await {
+        _ => match timeout(Duration::from_secs(2), TcpStream::connect(&reality_addr_auto)).await {
             Ok(Ok(_)) => true,
             _ => false,
         },

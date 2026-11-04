@@ -150,12 +150,12 @@ ufw default deny incoming > /dev/null 2>&1 || true
 ufw default allow outgoing > /dev/null 2>&1 || true
 ufw allow "${SSH_PORT}/tcp" comment 'Votex SSH' > /dev/null 2>&1 || true
 [[ "${SSH_PORT}" != "22" ]] && ufw allow 22/tcp comment 'Votex Default SSH' > /dev/null 2>&1 || true
-ufw allow 20444/tcp comment 'Votex VLESS Reality Auto' > /dev/null 2>&1 || true
-ufw allow 20443/tcp comment 'Votex VLESS Reality Vision' > /dev/null 2>&1 || true
+ufw allow 20443/tcp comment 'Votex VLESS Reality Vision & Auto' > /dev/null 2>&1 || true
 ufw allow 2053/tcp comment 'Votex VLESS Reality SplitHTTP' > /dev/null 2>&1 || true
-ufw allow 8443/tcp comment 'Votex VLESS Reality gRPC' > /dev/null 2>&1 || true
-ufw allow 2083/udp comment 'Votex Hysteria 2 UDP' > /dev/null 2>&1 || true
-ufw allow 2083/tcp comment 'Votex Hysteria 2 TCP Ping' > /dev/null 2>&1 || true
+ufw allow 8443/tcp comment 'Votex Reality gRPC & Hysteria TCP Ping' > /dev/null 2>&1 || true
+ufw allow 8443/udp comment 'Votex Hysteria 2 UDP' > /dev/null 2>&1 || true
+ufw allow 2083/udp comment 'Votex Hysteria 2 UDP Legacy' > /dev/null 2>&1 || true
+ufw allow 2083/tcp comment 'Votex Hysteria 2 TCP Ping Legacy' > /dev/null 2>&1 || true
 ufw allow 2088/tcp comment 'Votex Shadowsocks-2022' > /dev/null 2>&1 || true
 ufw allow 2088/udp comment 'Votex Shadowsocks-2022 UDP' > /dev/null 2>&1 || true
 ufw allow 18080/tcp comment 'Votex Subscription Microservice' > /dev/null 2>&1 || true
@@ -271,9 +271,13 @@ SS_PASSWORD=$(openssl rand -base64 16)
 HY_PASSWORD=$(openssl rand -hex 16)
 SUBSCRIPTION_TOKEN=$(openssl rand -hex 16)
 
-# Generate self-signed TLS cert for Hysteria 2 under SNI addons.mozilla.org
+# Generate self-signed TLS cert for Hysteria 2 under SNI addons.mozilla.org & sslip.io
+SERVER_IP_DASH=$(echo "${SERVER_IP}" | tr '.' '-')
 openssl ecparam -name prime256v1 -genkey -noout -out /etc/hysteria/server.key > /dev/null 2>&1 || true
-openssl req -new -x509 -key /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=addons.mozilla.org" -addext "subjectAltName=DNS:addons.mozilla.org" > /dev/null 2>&1 || true
+openssl req -new -x509 -key /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 \
+  -subj "/CN=addons.mozilla.org" \
+  -addext "subjectAltName=DNS:addons.mozilla.org,DNS:${SERVER_IP_DASH}.sslip.io,IP:${SERVER_IP}" > /dev/null 2>&1 || true
+HY_CERT_SHA256=$(openssl x509 -in /etc/hysteria/server.crt -outform der 2>/dev/null | sha256sum 2>/dev/null | awk '{print $1}' || echo "")
 
 # 5.1. Generate Xray Server Configuration (/usr/local/etc/xray/config.json)
 cat << EOF > /usr/local/etc/xray/config.json
@@ -450,7 +454,7 @@ EOF
 
 # 5.2. Generate Hysteria 2 Server Configuration (/etc/hysteria/config.yaml)
 cat << EOF > /etc/hysteria/config.yaml
-listen: :2083
+listen: :8443
 tls:
   cert: /etc/hysteria/server.crt
   key: /etc/hysteria/server.key
@@ -464,6 +468,10 @@ masquerade:
     url: https://addons.mozilla.org/
     rewriteHost: true
 EOF
+
+# Multi-port UDP redirection for Hysteria 2 (ports 2083 and 443 -> 8443)
+iptables -t nat -A PREROUTING -p udp --dport 2083 -j REDIRECT --to-ports 8443 > /dev/null 2>&1 || true
+iptables -t nat -A PREROUTING -p udp --dport 443 -j REDIRECT --to-ports 8443 > /dev/null 2>&1 || true
 
 # Set proper permissions for /etc/hysteria and certificates
 chmod 755 /etc/hysteria
@@ -496,14 +504,14 @@ systemctl enable --now hysteria-server > /dev/null 2>&1 || systemctl restart hys
 
 sleep 2
 if systemctl is-active --quiet xray; then
-    log_info "Xray-core успешно запущен (порты 20444, 20443, 2053, 8443, 2083-TCP, 2088 активны)"
+    log_info "Xray-core успешно запущен (порты 20443, 2053, 8443, 2083-TCP, 2088 активны)"
 else
     log_warn "Xray не запустился. Диагностика службы:"
     journalctl -u xray -n 12 --no-pager 2>&1 || true
 fi
 
 if systemctl is-active --quiet hysteria-server; then
-    log_info "Hysteria 2 сервер успешно запущен (UDP порт 2083 активен)"
+    log_info "Hysteria 2 сервер успешно запущен (UDP порты 8443, 2083 активны)"
 else
     log_warn "Hysteria 2 не запустился. Диагностика службы:"
     journalctl -u hysteria-server -n 12 --no-pager 2>&1 || true
@@ -522,6 +530,7 @@ cat << EOF > /etc/votex/config.json
   "reality_short_id": "${REALITY_SHORT_ID}",
   "ss_password": "${SS_PASSWORD}",
   "hy_password": "${HY_PASSWORD}",
+  "hy_cert_sha256": "${HY_CERT_SHA256}",
   "port": 18080
 }
 EOF
@@ -580,40 +589,44 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     short_id = cfg.get("reality_short_id", "")
     hy_pass = cfg.get("hy_password", "")
     ss_pass = cfg.get("ss_password", "")
+    cert_sha256 = cfg.get("hy_cert_sha256", "")
 
     # SS-2022 userinfo base64 encoded (2022-blake3-aes-128-gcm:pass)
     ss_auth_str = f"2022-blake3-aes-128-gcm:{ss_pass}"
     ss_auth_b64 = base64.urlsafe_b64encode(ss_auth_str.encode("utf-8")).decode("utf-8").rstrip("=")
 
+    cert_sha256 = cfg.get("hy_cert_sha256", "")
+    hy_pin_param = f"&pinSHA256={cert_sha256}" if cert_sha256 else ""
+
     links: List[str] = [
         (
-            f"vless://{uuid}@{server_ip}:20444"
-            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=chrome"
+            f"vless://{uuid}@{server_ip}:20443"
+            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
             f"&type=tcp&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid={short_id}"
             f"#Votex-auto"
         ),
         (
             f"vless://{uuid}@{server_ip}:20443"
-            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=chrome"
+            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
             f"&type=tcp&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid={short_id}"
             f"#Votex-Reality-Vision"
         ),
         (
             f"vless://{uuid}@{server_ip}:2053"
-            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=chrome"
+            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
             f"&type=xhttp&sni=addons.mozilla.org&sid={short_id}"
             f"&path=%2Fassets%2Fbuild%2F_app%2Fimmutable%2Fchunks%2Fstream-one%2F"
             f"#Votex-SplitHTTP-AntiDPI"
         ),
         (
             f"vless://{uuid}@{server_ip}:8443"
-            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=chrome"
+            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
             f"&type=grpc&serviceName=yabl1ch-grpc&sni=addons.mozilla.org&sid={short_id}"
             f"#Votex-Reality-gRPC"
         ),
         (
-            f"hysteria2://{hy_pass}@{server_ip}:2083"
-            f"/?insecure=1&sni=addons.mozilla.org"
+            f"hysteria2://{hy_pass}@{server_ip}:8443"
+            f"/?insecure=1&sni=addons.mozilla.org{hy_pin_param}"
             f"#Votex-Hysteria2-Gaming"
         ),
         (
@@ -634,6 +647,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
     short_id = cfg.get("reality_short_id", "")
     hy_pass = cfg.get("hy_password", "")
     ss_pass = cfg.get("ss_password", "")
+    cert_sha256 = cfg.get("hy_cert_sha256", "")
 
     russian_domains = [
         "geosite:category-ru",
@@ -809,7 +823,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "vnext": [
                         {
                             "address": server_ip,
-                            "port": 20444,
+                            "port": 20443,
                             "users": [
                                 {
                                     "id": uuid,
@@ -860,7 +874,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "network": "tcp",
                     "security": "reality",
                     "realitySettings": {
-                        "fingerprint": "chrome",
+                        "fingerprint": "firefox",
                         "publicKey": pub_key,
                         "serverName": "addons.mozilla.org",
                         "shortId": short_id,
@@ -895,7 +909,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "network": "xhttp",
                     "security": "reality",
                     "realitySettings": {
-                        "fingerprint": "chrome",
+                        "fingerprint": "firefox",
                         "publicKey": pub_key,
                         "serverName": "addons.mozilla.org",
                         "shortId": short_id,
@@ -946,7 +960,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "network": "grpc",
                     "security": "reality",
                     "realitySettings": {
-                        "fingerprint": "chrome",
+                        "fingerprint": "firefox",
                         "publicKey": pub_key,
                         "serverName": "addons.mozilla.org",
                         "shortId": short_id,
@@ -965,7 +979,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 "tag": "hy2",
                 "settings": {
                     "address": server_ip,
-                    "port": 2083,
+                    "port": 8443,
                     "version": 2,
                 },
                 "streamSettings": {
@@ -975,13 +989,22 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                         "auth": hy_pass,
                         "version": 2,
                     },
-                    "tlsSettings": {
-                        "alpn": ["h3"],
-                        "enableSessionResumption": False,
-                        "fingerprint": "firefox",
-                        "serverName": "addons.mozilla.org",
-                        "allowInsecure": True,
-                    },
+                    "tlsSettings": (
+                        {
+                            "alpn": ["h3"],
+                            "enableSessionResumption": False,
+                            "fingerprint": "firefox",
+                            "serverName": "addons.mozilla.org",
+                            "pinnedPeerCertSha256": cert_sha256,
+                        }
+                        if cert_sha256
+                        else {
+                            "alpn": ["h3"],
+                            "enableSessionResumption": False,
+                            "fingerprint": "firefox",
+                            "serverName": "addons.mozilla.org",
+                        }
+                    ),
                 },
             },
             {
@@ -1380,7 +1403,7 @@ cat << EOF > /var/log/votex-report.json
       "vision": {"port": 20443, "latency_ms": ${LAT_VISION}, "status": "active"},
       "xhttp": {"port": 2053, "latency_ms": ${LAT_XHTTP}, "status": "active"},
       "grpc": {"port": 8443, "latency_ms": ${LAT_GRPC}, "status": "active"},
-      "hysteria2": {"port": 2083, "latency_ms": ${LAT_HY2}, "status": "active"},
+      "hysteria2": {"port": 8443, "latency_ms": ${LAT_HY2}, "status": "active"},
       "shadowsocks": {"port": 2088, "latency_ms": ${LAT_SS}, "status": "active"}
     }
   },
@@ -1388,7 +1411,7 @@ cat << EOF > /var/log/votex-report.json
     "tcp_bbr": true,
     "fail2ban": true,
     "ufw": true,
-    "allowed_ports": [22, 20444, 20443, 2053, 8443, 2083, 2088, 18080]
+    "allowed_ports": [22, 20443, 2053, 8443, 2083, 2088, 18080]
   }
 }
 EOF
@@ -1404,7 +1427,7 @@ echo -e "${CYAN}Фаервол UFW:            ${NC}Включен (Все не�
 echo -e "${CYAN}TCP BBR Ускорение:      ${NC}Включено (net.core.default_qdisc = fq)"
 echo -e "${CYAN}Задержка (Ping):        ${NC}${PING_MS} ms"
 echo -e "${CYAN}Скорость канала:        ${NC}${SPEED_MBPS} Mbps"
-echo -e "${CYAN}Протоколы All-In-One:   ${NC}Auto (20444), Vision (20443), SplitHTTP (2053), gRPC (8443), Hysteria2 (2083), SS-2022 (2088)"
+echo -e "${CYAN}Протоколы All-In-One:   ${NC}Auto (20443), Vision (20443), SplitHTTP (2053), gRPC (8443), Hysteria2 (8443), SS-2022 (2088)"
 echo -e "${CYAN}Маршрутизация РФ:       ${NC}Direct (.ru, .su, Банки, Госуслуги, Ozon)"
 echo -e "${CYAN}Разблокировка ИИ:       ${NC}Proxy (Gemini, Claude, ChatGPT, YouTube, Discord)"
 echo -e "${CYAN}Анти-DPI защита:        ${NC}TLS Packet Fragmentation (1-3 packets, 100-200 len)"

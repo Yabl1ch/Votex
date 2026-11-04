@@ -50,15 +50,19 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     short_id = cfg.get("reality_short_id", "")
     hy_pass = cfg.get("hy_password", "")
     ss_pass = cfg.get("ss_password", "")
+    cert_sha256 = cfg.get("hy_cert_sha256", "")
 
     # SS-2022 userinfo base64 encoded (2022-blake3-aes-128-gcm:pass)
     ss_auth_str = f"2022-blake3-aes-128-gcm:{ss_pass}"
     ss_auth_b64 = base64.urlsafe_b64encode(ss_auth_str.encode("utf-8")).decode("utf-8").rstrip("=")
 
+    cert_sha256 = cfg.get("hy_cert_sha256", "")
+    hy_pin_param = f"&pinSHA256={cert_sha256}" if cert_sha256 else ""
+
     links: List[str] = [
         (
-            f"vless://{uuid}@{server_ip}:20444"
-            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=chrome"
+            f"vless://{uuid}@{server_ip}:20443"
+            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
             f"&type=tcp&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid={short_id}"
             f"#Votex-auto"
         ),
@@ -82,8 +86,8 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
             f"#Votex-Reality-gRPC"
         ),
         (
-            f"hysteria2://{hy_pass}@{server_ip}:2083"
-            f"/?insecure=1&sni=addons.mozilla.org"
+            f"hysteria2://{hy_pass}@{server_ip}:8443"
+            f"/?insecure=1&sni=addons.mozilla.org{hy_pin_param}"
             f"#Votex-Hysteria2-Gaming"
         ),
         (
@@ -104,6 +108,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
     short_id = cfg.get("reality_short_id", "")
     hy_pass = cfg.get("hy_password", "")
     ss_pass = cfg.get("ss_password", "")
+    cert_sha256 = cfg.get("hy_cert_sha256", "")
 
     russian_domains = [
         "geosite:category-ru",
@@ -279,7 +284,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "vnext": [
                         {
                             "address": server_ip,
-                            "port": 20444,
+                            "port": 20443,
                             "users": [
                                 {
                                     "id": uuid,
@@ -435,7 +440,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 "tag": "hy2",
                 "settings": {
                     "address": server_ip,
-                    "port": 2083,
+                    "port": 8443,
                     "version": 2,
                 },
                 "streamSettings": {
@@ -445,13 +450,22 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                         "auth": hy_pass,
                         "version": 2,
                     },
-                    "tlsSettings": {
-                        "alpn": ["h3"],
-                        "enableSessionResumption": False,
-                        "fingerprint": "firefox",
-                        "serverName": "addons.mozilla.org",
-                        "allowInsecure": True,
-                    },
+                    "tlsSettings": (
+                        {
+                            "alpn": ["h3"],
+                            "enableSessionResumption": False,
+                            "fingerprint": "firefox",
+                            "serverName": "addons.mozilla.org",
+                            "pinnedPeerCertSha256": cert_sha256,
+                        }
+                        if cert_sha256
+                        else {
+                            "alpn": ["h3"],
+                            "enableSessionResumption": False,
+                            "fingerprint": "firefox",
+                            "serverName": "addons.mozilla.org",
+                        }
+                    ),
                 },
             },
             {
