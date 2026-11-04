@@ -75,11 +75,12 @@ export interface AppState {
 
 export const initialFirewallPorts: FirewallPort[] = [
   { port: 22, proto: "tcp", service: "SSH Remote Shell", status: "ALLOW", comment: "Удаленное администрирование" },
+  { port: 443, proto: "tcp", service: "VLESS Reality Auto", status: "ALLOW", comment: "Автоматический выбор протокола" },
   { port: 20443, proto: "tcp", service: "VLESS Reality Vision", status: "ALLOW", comment: "Основной TLS 1.3 туннель" },
   { port: 2053, proto: "tcp", service: "SplitHTTP (xhttp)", status: "ALLOW", comment: "Обход жестких белых списков" },
   { port: 8443, proto: "tcp", service: "gRPC Multi-Stream", status: "ALLOW", comment: "Мультиплексный канал" },
-  { port: 2083, proto: "udp", service: "Hysteria 2 (QUIC)", status: "ALLOW", comment: "Низкий пинг для игр и звонков" },
-  { port: 2088, proto: "tcp", service: "Shadowsocks-2022", status: "ALLOW", comment: "Резервный шифрованный прокси" },
+  { port: 2083, proto: "tcp/udp", service: "Hysteria 2 (QUIC + Ping)", status: "ALLOW", comment: "Низкий пинг для игр и звонков" },
+  { port: 2088, proto: "tcp/udp", service: "Shadowsocks-2022", status: "ALLOW", comment: "Резервный шифрованный прокси" },
   { port: 18080, proto: "tcp", service: "Encrypted Sub Service", status: "ALLOW", comment: "Служба раздачи профилей" },
 ];
 
@@ -198,7 +199,7 @@ export const defaultMockReport: VotexReport = {
     tcp_bbr: true,
     fail2ban: true,
     ufw: true,
-    allowed_ports: [22, 20443, 2053, 8443, 2083, 2088, 18080],
+    allowed_ports: [22, 443, 20443, 2053, 8443, 2083, 2088, 18080],
   },
 };
 

@@ -48,7 +48,7 @@ class TestSubscriptionService(unittest.TestCase):
         # Check 1: Votex-auto link (top item)
         auto_link = links[0]
         self.assertTrue(auto_link.startswith("vless://"))
-        self.assertIn("198.51.100.42:20443", auto_link)
+        self.assertIn("198.51.100.42:443", auto_link)
         self.assertIn("flow=xtls-rprx-vision", auto_link)
         self.assertIn("Votex-auto", auto_link)
 
@@ -97,7 +97,7 @@ class TestSubscriptionService(unittest.TestCase):
         self.assertIn("burstObservatory", profile)
         obs = profile["burstObservatory"]
         self.assertEqual(obs["pingConfig"]["destination"], "http://www.gstatic.com/generate_204")
-        self.assertListEqual(obs["subjectSelector"], ["vision", "xhttp", "grpc", "hy2", "ss2022"])
+        self.assertListEqual(obs["subjectSelector"], ["auto", "vision", "xhttp", "grpc", "hy2", "ss2022"])
 
         # 2. DNS
         self.assertIn("dns", profile)
@@ -138,8 +138,8 @@ class TestSubscriptionService(unittest.TestCase):
         self.assertEqual(frag_ob["settings"]["fragment"]["length"], "100-200")
         self.assertEqual(frag_ob["settings"]["fragment"]["interval"], "10-20")
 
-        # Verify that vision, xhttp, grpc route through dialerProxy: fragment-out
-        for tag in ["vision", "xhttp", "grpc"]:
+        # Verify that auto, vision, xhttp, grpc route through dialerProxy: fragment-out
+        for tag in ["auto", "vision", "xhttp", "grpc"]:
             ob = outbound_map[tag]
             self.assertEqual(ob["streamSettings"]["sockopt"]["dialerProxy"], "fragment-out")
 
@@ -148,7 +148,7 @@ class TestSubscriptionService(unittest.TestCase):
         self.assertIn("balancers", routing)
         balancer = routing["balancers"][0]
         self.assertEqual(balancer["tag"], "VotexBalancer")
-        self.assertListEqual(balancer["selector"], ["vision", "xhttp", "grpc", "hy2", "ss2022"])
+        self.assertListEqual(balancer["selector"], ["auto", "vision", "xhttp", "grpc", "hy2", "ss2022"])
         self.assertEqual(balancer["strategy"]["type"], "leastPing")
 
         rules = routing["rules"]

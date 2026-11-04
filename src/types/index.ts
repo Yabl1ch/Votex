@@ -114,7 +114,7 @@ export interface BannedIP {
 
 export interface FirewallPort {
   port: number;
-  proto: "tcp" | "udp";
+  proto: "tcp" | "udp" | "tcp/udp";
   service: string;
   status: "ALLOW" | "DENY";
   comment?: string;

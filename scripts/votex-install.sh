@@ -150,10 +150,12 @@ ufw default deny incoming > /dev/null 2>&1 || true
 ufw default allow outgoing > /dev/null 2>&1 || true
 ufw allow "${SSH_PORT}/tcp" comment 'Votex SSH' > /dev/null 2>&1 || true
 [[ "${SSH_PORT}" != "22" ]] && ufw allow 22/tcp comment 'Votex Default SSH' > /dev/null 2>&1 || true
+ufw allow 443/tcp comment 'Votex VLESS Reality Auto' > /dev/null 2>&1 || true
 ufw allow 20443/tcp comment 'Votex VLESS Reality Vision' > /dev/null 2>&1 || true
 ufw allow 2053/tcp comment 'Votex VLESS Reality SplitHTTP' > /dev/null 2>&1 || true
 ufw allow 8443/tcp comment 'Votex VLESS Reality gRPC' > /dev/null 2>&1 || true
-ufw allow 2083/udp comment 'Votex Hysteria 2' > /dev/null 2>&1 || true
+ufw allow 2083/udp comment 'Votex Hysteria 2 UDP' > /dev/null 2>&1 || true
+ufw allow 2083/tcp comment 'Votex Hysteria 2 TCP Ping' > /dev/null 2>&1 || true
 ufw allow 2088/tcp comment 'Votex Shadowsocks-2022' > /dev/null 2>&1 || true
 ufw allow 2088/udp comment 'Votex Shadowsocks-2022 UDP' > /dev/null 2>&1 || true
 ufw allow 18080/tcp comment 'Votex Subscription Microservice' > /dev/null 2>&1 || true
@@ -266,12 +268,12 @@ fi
 REALITY_SHORT_ID=$(openssl rand -hex 8)
 CLIENT_UUID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || python3 -c 'import uuid; print(uuid.uuid4())')
 SS_PASSWORD=$(openssl rand -base64 16)
-HY_PASSWORD=$(openssl rand -base64 16)
+HY_PASSWORD=$(openssl rand -hex 16)
 SUBSCRIPTION_TOKEN=$(openssl rand -hex 16)
 
 # Generate self-signed TLS cert for Hysteria 2 under SNI addons.mozilla.org
 openssl ecparam -name prime256v1 -genkey -noout -out /etc/hysteria/server.key > /dev/null 2>&1 || true
-openssl req -new -x509 -key /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=addons.mozilla.org" > /dev/null 2>&1 || true
+openssl req -new -x509 -key /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=addons.mozilla.org" -addext "subjectAltName=DNS:addons.mozilla.org" > /dev/null 2>&1 || true
 
 # 5.1. Generate Xray Server Configuration (/usr/local/etc/xray/config.json)
 cat << EOF > /usr/local/etc/xray/config.json
@@ -287,6 +289,36 @@ cat << EOF > /usr/local/etc/xray/config.json
     ]
   },
   "inbounds": [
+    {
+      "tag": "vless-auto",
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "${CLIENT_UUID}",
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "addons.mozilla.org:443",
+          "xver": 0,
+          "serverNames": ["addons.mozilla.org"],
+          "privateKey": "${REALITY_PRIVATE_KEY}",
+          "shortIds": ["${REALITY_SHORT_ID}"]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"]
+      }
+    },
     {
       "tag": "vless-vision",
       "port": 20443,
@@ -391,6 +423,16 @@ cat << EOF > /usr/local/etc/xray/config.json
         "password": "${SS_PASSWORD}",
         "network": "tcp,udp"
       }
+    },
+    {
+      "tag": "hysteria-tcp-ping",
+      "port": 2083,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 2083,
+        "network": "tcp"
+      }
     }
   ],
   "outbounds": [
@@ -408,11 +450,11 @@ EOF
 
 # 5.2. Generate Hysteria 2 Server Configuration (/etc/hysteria/config.yaml)
 cat << EOF > /etc/hysteria/config.yaml
-server:
-  listen: :2083
+listen: :2083
 tls:
   cert: /etc/hysteria/server.crt
   key: /etc/hysteria/server.key
+  sniGuard: disable
 auth:
   type: password
   password: "${HY_PASSWORD}"
@@ -421,9 +463,6 @@ masquerade:
   proxy:
     url: https://addons.mozilla.org/
     rewriteHost: true
-outbounds:
-  - name: direct
-    type: direct
 EOF
 
 # Hysteria 2 Systemd Unit
@@ -450,7 +489,7 @@ systemctl enable --now hysteria-server > /dev/null 2>&1 || systemctl restart hys
 
 sleep 2
 if systemctl is-active --quiet xray; then
-    log_info "Xray-core успешно запущен (порты 20443, 2053, 8443, 2088 активны)"
+    log_info "Xray-core успешно запущен (порты 443, 20443, 2053, 8443, 2083-TCP, 2088 активны)"
 else
     log_warn "Xray не запустился. Диагностика службы:"
     journalctl -u xray -n 12 --no-pager 2>&1 || true
@@ -541,7 +580,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
 
     links: List[str] = [
         (
-            f"vless://{uuid}@{server_ip}:20443"
+            f"vless://{uuid}@{server_ip}:443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=chrome"
             f"&type=tcp&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid={short_id}"
             f"#Votex-auto"
@@ -693,6 +732,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 "timeout": "6s",
             },
             "subjectSelector": [
+                "auto",
                 "vision",
                 "xhttp",
                 "grpc",
@@ -755,6 +795,42 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
             },
         ],
         "outbounds": [
+            {
+                "protocol": "vless",
+                "tag": "auto",
+                "settings": {
+                    "vnext": [
+                        {
+                            "address": server_ip,
+                            "port": 443,
+                            "users": [
+                                {
+                                    "id": uuid,
+                                    "flow": "xtls-rprx-vision",
+                                    "encryption": "none",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "streamSettings": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {
+                        "fingerprint": "firefox",
+                        "publicKey": pub_key,
+                        "serverName": "addons.mozilla.org",
+                        "shortId": short_id,
+                        "spiderX": "/",
+                    },
+                    "tcpSettings": {
+                        "header": {"type": "none"}
+                    },
+                    "sockopt": {
+                        "dialerProxy": "fragment-out"
+                    },
+                },
+            },
             {
                 "protocol": "vless",
                 "tag": "vision",
@@ -940,6 +1016,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 {
                     "tag": "VotexBalancer",
                     "selector": [
+                        "auto",
                         "vision",
                         "xhttp",
                         "grpc",
@@ -1304,7 +1381,7 @@ cat << EOF > /var/log/votex-report.json
     "tcp_bbr": true,
     "fail2ban": true,
     "ufw": true,
-    "allowed_ports": [22, 20443, 2053, 8443, 2083, 2088, 18080]
+    "allowed_ports": [22, 443, 20443, 2053, 8443, 2083, 2088, 18080]
   }
 }
 EOF
@@ -1320,7 +1397,7 @@ echo -e "${CYAN}Фаервол UFW:            ${NC}Включен (Все не�
 echo -e "${CYAN}TCP BBR Ускорение:      ${NC}Включено (net.core.default_qdisc = fq)"
 echo -e "${CYAN}Задержка (Ping):        ${NC}${PING_MS} ms"
 echo -e "${CYAN}Скорость канала:        ${NC}${SPEED_MBPS} Mbps"
-echo -e "${CYAN}Протоколы All-In-One:   ${NC}Vision (20443), SplitHTTP (2053), gRPC (8443), Hysteria2 (2083), SS-2022 (2088)"
+echo -e "${CYAN}Протоколы All-In-One:   ${NC}Auto (443), Vision (20443), SplitHTTP (2053), gRPC (8443), Hysteria2 (2083), SS-2022 (2088)"
 echo -e "${CYAN}Маршрутизация РФ:       ${NC}Direct (.ru, .su, Банки, Госуслуги, Ozon)"
 echo -e "${CYAN}Разблокировка ИИ:       ${NC}Proxy (Gemini, Claude, ChatGPT, YouTube, Discord)"
 echo -e "${CYAN}Анти-DPI защита:        ${NC}TLS Packet Fragmentation (1-3 packets, 100-200 len)"

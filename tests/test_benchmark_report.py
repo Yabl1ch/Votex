@@ -32,7 +32,7 @@ class TestBenchmarkReportSchema(unittest.TestCase):
                 "tcp_bbr": True,
                 "fail2ban": True,
                 "ufw": True,
-                "allowed_ports": [22, 20443, 2053, 8443, 2083, 2088, 18080],
+                "allowed_ports": [22, 443, 20443, 2053, 8443, 2083, 2088, 18080],
             },
         }
 
@@ -66,7 +66,7 @@ class TestBenchmarkReportSchema(unittest.TestCase):
         self.assertTrue(hard["tcp_bbr"])
         self.assertTrue(hard["fail2ban"])
         self.assertTrue(hard["ufw"])
-        expected_ports = {22, 20443, 2053, 8443, 2083, 2088, 18080}
+        expected_ports = {22, 443, 20443, 2053, 8443, 2083, 2088, 18080}
         self.assertEqual(set(hard["allowed_ports"]), expected_ports)
 
 

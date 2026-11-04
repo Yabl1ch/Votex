@@ -262,7 +262,7 @@ VOTEX_JSON_REPORT_START
     "tcp_bbr": true,
     "fail2ban": true,
     "ufw": true,
-    "allowed_ports": [22, 20443, 2053, 8443, 2083, 2088, 18080]
+    "allowed_ports": [22, 443, 20443, 2053, 8443, 2083, 2088, 18080]
   }
 }
 VOTEX_JSON_REPORT_END
@@ -276,7 +276,7 @@ VOTEX_JSON_REPORT_END
         assert_eq!(report.benchmark.latency_ms, 32);
         assert_eq!(report.benchmark.speed_mbps, 480);
         assert_eq!(report.benchmark.protocols.vision.port, 20443);
-        assert_eq!(report.hardening.allowed_ports.len(), 7);
+        assert_eq!(report.hardening.allowed_ports.len(), 8);
         assert!(report.hardening.tcp_bbr);
     }
 

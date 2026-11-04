@@ -57,7 +57,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
 
     links: List[str] = [
         (
-            f"vless://{uuid}@{server_ip}:20443"
+            f"vless://{uuid}@{server_ip}:443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
             f"&type=tcp&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid={short_id}"
             f"#Votex-auto"
@@ -209,6 +209,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 "timeout": "6s",
             },
             "subjectSelector": [
+                "auto",
                 "vision",
                 "xhttp",
                 "grpc",
@@ -271,6 +272,42 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
             },
         ],
         "outbounds": [
+            {
+                "protocol": "vless",
+                "tag": "auto",
+                "settings": {
+                    "vnext": [
+                        {
+                            "address": server_ip,
+                            "port": 443,
+                            "users": [
+                                {
+                                    "id": uuid,
+                                    "flow": "xtls-rprx-vision",
+                                    "encryption": "none",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "streamSettings": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {
+                        "fingerprint": "firefox",
+                        "publicKey": pub_key,
+                        "serverName": "addons.mozilla.org",
+                        "shortId": short_id,
+                        "spiderX": "/",
+                    },
+                    "tcpSettings": {
+                        "header": {"type": "none"}
+                    },
+                    "sockopt": {
+                        "dialerProxy": "fragment-out"
+                    },
+                },
+            },
             {
                 "protocol": "vless",
                 "tag": "vision",
@@ -456,6 +493,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 {
                     "tag": "VotexBalancer",
                     "selector": [
+                        "auto",
                         "vision",
                         "xhttp",
                         "grpc",
