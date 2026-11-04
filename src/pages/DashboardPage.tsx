@@ -248,7 +248,7 @@ export const DashboardPage: React.FC = () => {
           <div className="space-y-3.5 my-1">
             <p className="text-sm text-[#A7F3D0]/80 leading-relaxed">
               {hasVps
-                ? "Персональный URL для автоматического импорта узла Votex-auto (leastPing) или 5 протоколов в мобильный и десктопный клиент."
+                ? "Персональный URL для автоматического импорта Votex-auto и 5 протоколов (всего 6 конфигураций) в клиент Happ."
                 : "Ссылка появится здесь после первоначальной настройки сервера в Мастере установки."}
             </p>
 
@@ -274,7 +274,7 @@ export const DashboardPage: React.FC = () => {
                 {copied
                   ? "Ссылка скопирована в буфер!"
                   : subUrl
-                  ? "Копировать ссылку для Happ (Votex-auto)"
+                  ? "Копировать ссылку для Happ"
                   : "Сначала настройте сервер"}
               </GlassButton>
             </div>

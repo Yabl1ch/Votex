@@ -527,7 +527,7 @@ def load_server_config(config_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]
 
 
 def build_base64_subscription(cfg: Dict[str, Any]) -> str:
-    """Generate Base64 encoded subscription link list."""
+    """Generate Base64 encoded subscription link list with 6 protocols (Auto + 5 individual)."""
     server_ip = cfg.get("server_ip", "127.0.0.1")
     uuid = cfg.get("client_uuid", "")
     pub_key = cfg.get("reality_public_key", "")
@@ -540,6 +540,12 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     ss_auth_b64 = base64.urlsafe_b64encode(ss_auth_str.encode("utf-8")).decode("utf-8").rstrip("=")
 
     links: List[str] = [
+        (
+            f"vless://{uuid}@{server_ip}:20443"
+            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=chrome"
+            f"&type=tcp&flow=xtls-rprx-vision&sni=addons.mozilla.org&sid={short_id}"
+            f"#Votex-auto"
+        ),
         (
             f"vless://{uuid}@{server_ip}:20443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=chrome"
@@ -1114,14 +1120,19 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
             format_param = query.get("format", [""])[0].lower()
             accept_header = self.headers.get("Accept", "").lower()
 
-            # Serve JSON with Smart Routing profile for Happ, sing-box, xray or when requested
-            is_base64 = (
-                format_param in ("b64", "base64")
-                or "v2rayn" in user_agent
-                or (user_agent.startswith("mozilla") and "happ" not in user_agent and format_param != "json" and "application/json" not in accept_header)
+            # Return JSON with Smart Routing profile only when explicitly requested
+            # (?format=json or Accept: application/json without wildcard)
+            # By default (including for Happ, v2rayN, etc.), serve Base64 with all 6 protocols
+            is_json = (
+                format_param == "json"
+                or (
+                    "application/json" in accept_header
+                    and "*/*" not in accept_header
+                    and format_param not in ("b64", "base64")
+                )
             )
 
-            if not is_base64:
+            if is_json:
                 profile_data = build_json_profile(cfg)
                 response_bytes = json.dumps(profile_data, indent=2, ensure_ascii=False).encode("utf-8")
 

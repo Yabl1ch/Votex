@@ -18,30 +18,25 @@ import { useAppStore } from "../store";
 
 export const SubscriptionPage: React.FC = () => {
   const { report, regenerateToken } = useAppStore();
-  const [copiedAuto, setCopiedAuto] = useState(false);
-  const [copiedAll, setCopiedAll] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [tokenRegenerating, setTokenRegenerating] = useState(false);
   const [tokenFeedback, setTokenFeedback] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(false);
-  const [qrFormat, setQrFormat] = useState<"auto" | "b64">("auto");
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
   const subUrl = report?.subscription_url || "";
-  const b64Url = subUrl ? `${subUrl}?format=b64` : "";
   const hasSub = Boolean(report && subUrl);
 
-  const activeQrTarget = qrFormat === "auto" ? subUrl : b64Url;
-
-  // Generate QR Code data URL whenever activeQrTarget changes
+  // Generate QR Code data URL whenever subUrl changes
   useEffect(() => {
     let isMounted = true;
-    if (!activeQrTarget) {
+    if (!subUrl) {
       setQrDataUrl(null);
       return;
     }
     const generateQr = async () => {
       try {
-        const url = await QRCode.toDataURL(activeQrTarget, {
+        const url = await QRCode.toDataURL(subUrl, {
           width: 280,
           margin: 2,
           color: {
@@ -61,27 +56,16 @@ export const SubscriptionPage: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [activeQrTarget]);
+  }, [subUrl]);
 
-  const handleCopyAuto = async () => {
+  const handleCopyLink = async () => {
     if (!subUrl) return;
     try {
       await navigator.clipboard.writeText(subUrl);
-      setCopiedAuto(true);
-      setTimeout(() => setCopiedAuto(false), 2000);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
     } catch (err) {
-      console.warn("Failed to copy auto link:", err);
-    }
-  };
-
-  const handleCopyAll = async () => {
-    if (!b64Url) return;
-    try {
-      await navigator.clipboard.writeText(b64Url);
-      setCopiedAll(true);
-      setTimeout(() => setCopiedAll(false), 2000);
-    } catch (err) {
-      console.warn("Failed to copy b64 link:", err);
+      console.warn("Failed to copy subscription link:", err);
     }
   };
 
@@ -165,42 +149,31 @@ export const SubscriptionPage: React.FC = () => {
               </div>
             )}
 
-            {/* Action Buttons: Neat Flow with No Overflow */}
+            {/* Action Buttons: 2 Neat Rows (Primary Full Width + 2 Secondary Actions Grid) */}
             <div className="space-y-2.5 pt-2">
-              {/* Primary Action: Votex-auto Smart Routing Link */}
+              {/* Row 1: Primary Action Button (Full Width) */}
               <div>
                 <GlassButton
                   variant="primary"
                   size="lg"
-                  onClick={handleCopyAuto}
+                  onClick={handleCopyLink}
                   disabled={!hasSub}
-                  icon={copiedAuto ? <Check className="w-5 h-5 text-[#06100C]" /> : <Copy className="w-5 h-5" />}
+                  icon={copiedLink ? <Check className="w-5 h-5 text-[#06100C]" /> : <Copy className="w-5 h-5" />}
                   className="w-full whitespace-nowrap"
                 >
-                  {copiedAuto
-                    ? "Ссылка Votex-auto скопирована в буфер!"
+                  {copiedLink
+                    ? "Ссылка скопирована в буфер!"
                     : hasSub
-                    ? "Копировать ссылку для Happ (Votex-auto)"
+                    ? "Копировать ссылку для Happ"
                     : "Ссылка недоступна (настройте сервер)"}
                 </GlassButton>
                 <span className="text-[11px] text-[#A7F3D0]/70 block mt-1 text-center">
-                  Умный балансировщик (leastPing) + автоматический обход блокировок и РФ-маршруты
+                  Включает Votex-auto и 5 протоколов обхода блокировок (всего 6 конфигураций)
                 </span>
               </div>
 
-              {/* Secondary Actions: 3-column Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                <GlassButton
-                  variant="secondary"
-                  size="md"
-                  onClick={handleCopyAll}
-                  disabled={!hasSub}
-                  icon={copiedAll ? <Check className="w-4 h-4 text-[#4ADE80]" /> : <Layers className="w-4 h-4 text-[#4ADE80]" />}
-                  className="w-full whitespace-nowrap text-xs"
-                >
-                  {copiedAll ? "Скопировано!" : "Все 5 протоколов"}
-                </GlassButton>
-
+              {/* Row 2: Secondary Actions (2 Equal Columns Grid) */}
+              <div className="grid grid-cols-2 gap-2.5">
                 <GlassButton
                   variant="secondary"
                   size="md"
@@ -209,7 +182,7 @@ export const SubscriptionPage: React.FC = () => {
                   icon={<QrCode className="w-4 h-4 text-[#4ADE80]" />}
                   className="w-full whitespace-nowrap text-xs"
                 >
-                  {showQr ? "Скрыть QR" : "QR-код"}
+                  {showQr ? "Скрыть QR-код" : "QR-код для телефона"}
                 </GlassButton>
 
                 <GlassButton
@@ -233,34 +206,8 @@ export const SubscriptionPage: React.FC = () => {
                   Сканирование для мобильных устройств
                 </span>
                 <p className="text-xs text-[#A7F3D0]/70 mb-3 max-w-sm">
-                  Откройте приложение Happ или v2rayNG на телефоне и наведите камеру на QR-код для мгновенного добавления:
+                  Откройте приложение Happ на телефоне и отсканируйте QR-код для добавления всех 6 конфигураций:
                 </p>
-
-                {/* QR Format Selector Pills */}
-                <div className="inline-flex p-1 rounded-xl bg-[rgba(8,20,15,0.8)] border border-[rgba(74,222,128,0.2)] mb-3 gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setQrFormat("auto")}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                      qrFormat === "auto"
-                        ? "bg-[#22C55E]/25 text-[#4ADE80] border border-[#22C55E]/40"
-                        : "text-[#A7F3D0]/70 hover:text-[#ECFDF5]"
-                    }`}
-                  >
-                    Votex-auto (Умная)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setQrFormat("b64")}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                      qrFormat === "b64"
-                        ? "bg-[#22C55E]/25 text-[#4ADE80] border border-[#22C55E]/40"
-                        : "text-[#A7F3D0]/70 hover:text-[#ECFDF5]"
-                    }`}
-                  >
-                    Все 5 протоколов (Base64)
-                  </button>
-                </div>
 
                 {qrDataUrl ? (
                   <div className="p-3.5 bg-white rounded-2xl shadow-[0_0_24px_rgba(74,222,128,0.3)]">
@@ -277,7 +224,7 @@ export const SubscriptionPage: React.FC = () => {
                 )}
 
                 <div className="mt-3 text-xs font-mono text-[#6EE7B7]">
-                  {qrFormat === "auto" ? "Профиль: Votex-auto (JSON Smart Routing)" : "Профиль: Все 5 протоколов (Base64)"}
+                  Профиль: Votex (6 конфигураций: Votex-auto + 5 протоколов)
                 </div>
               </div>
             )}
