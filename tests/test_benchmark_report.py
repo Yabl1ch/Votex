@@ -24,7 +24,7 @@ class TestBenchmarkReportSchema(unittest.TestCase):
                     "vision": {"port": 20443, "latency_ms": 32, "status": "active"},
                     "xhttp": {"port": 2053, "latency_ms": 46, "status": "active"},
                     "grpc": {"port": 8443, "latency_ms": 38, "status": "active"},
-                    "hysteria2": {"port": 8443, "latency_ms": 28, "status": "active"},
+                    "hysteria2": {"port": 443, "latency_ms": 28, "status": "active"},
                     "shadowsocks": {"port": 2088, "latency_ms": 34, "status": "active"},
                 },
             },
@@ -32,7 +32,7 @@ class TestBenchmarkReportSchema(unittest.TestCase):
                 "tcp_bbr": True,
                 "fail2ban": True,
                 "ufw": True,
-                "allowed_ports": [22, 20443, 2053, 8443, 2083, 2088, 18080],
+                "allowed_ports": [22, 20443, 2053, 8443, 443, 2083, 2088, 18080],
             },
         }
 
@@ -66,7 +66,7 @@ class TestBenchmarkReportSchema(unittest.TestCase):
         self.assertTrue(hard["tcp_bbr"])
         self.assertTrue(hard["fail2ban"])
         self.assertTrue(hard["ufw"])
-        expected_ports = {22, 20443, 2053, 8443, 2083, 2088, 18080}
+        expected_ports = {22, 20443, 2053, 8443, 443, 2083, 2088, 18080}
         self.assertEqual(set(hard["allowed_ports"]), expected_ports)
 
 

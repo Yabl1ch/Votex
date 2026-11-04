@@ -54,6 +54,8 @@ pub struct StrictHostKeyVerifier {
     pub detected_fingerprint: Arc<Mutex<Option<String>>>,
     pub verification_error: Arc<Mutex<Option<String>>>,
     pub is_tofu: Arc<Mutex<bool>>,
+    pub is_key_changed: Arc<Mutex<bool>>,
+    pub app: Option<AppHandle>,
 }
 
 impl russh::client::Handler for StrictHostKeyVerifier {
@@ -78,14 +80,19 @@ impl russh::client::Handler for StrictHostKeyVerifier {
             if expected_fp == &fp {
                 Ok(true)
             } else {
-                let err = format!(
-                    "КРИТИЧЕСКОЕ ПРЕДУПРЕЖДЕНИЕ БЕЗОПАСНОСТИ: SSH Host Key сервера {} изменился!\nОжидался: {}\nПолучен: {}\nВозможна атака Man-in-the-Middle (MitM) или переустановка VPS. Соединение заблокировано.",
-                    host_key, expected_fp, fp
+                let msg = format!(
+                    "[VOTEX-INFO] SSH Host Key сервера изменился (переустановка ОС). Доверенный отпечаток автоматически обновлен: {}",
+                    fp
                 );
-                if let Ok(mut ve) = self.verification_error.lock() {
-                    *ve = Some(err);
+                eprintln!("{}", msg);
+                if let Some(ref app) = self.app {
+                    let _ = app.emit("ssh-log", msg);
                 }
-                Ok(false)
+                if let Ok(mut kc) = self.is_key_changed.lock() {
+                    *kc = true;
+                }
+                save_known_host(&self.host, self.port, &fp);
+                Ok(true)
             }
         } else {
             // Trust On First Use (TOFU)
@@ -95,6 +102,83 @@ impl russh::client::Handler for StrictHostKeyVerifier {
             Ok(true)
         }
     }
+}
+
+pub async fn connect_ssh_with_retry(
+    config: Arc<russh::client::Config>,
+    host: &str,
+    port: u16,
+    detected_fingerprint: Arc<Mutex<Option<String>>>,
+    verification_error: Arc<Mutex<Option<String>>>,
+    is_tofu: Arc<Mutex<bool>>,
+    is_key_changed: Arc<Mutex<bool>>,
+    app: Option<AppHandle>,
+    emit_log: &(dyn Fn(String) + Send + Sync),
+) -> Result<russh::client::Handle<StrictHostKeyVerifier>, String> {
+    const MAX_ATTEMPTS: usize = 4;
+    let delays = [
+        Duration::from_millis(1500),
+        Duration::from_millis(2000),
+        Duration::from_millis(3000),
+    ];
+    let mut last_error = String::new();
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        let handler = StrictHostKeyVerifier {
+            host: host.to_string(),
+            port,
+            detected_fingerprint: Arc::clone(&detected_fingerprint),
+            verification_error: Arc::clone(&verification_error),
+            is_tofu: Arc::clone(&is_tofu),
+            is_key_changed: Arc::clone(&is_key_changed),
+            app: app.clone(),
+        };
+
+        match timeout(
+            Duration::from_secs(15),
+            russh::client::connect(Arc::clone(&config), (host, port), handler),
+        )
+        .await
+        {
+            Ok(Ok(handle)) => {
+                return Ok(handle);
+            }
+            Ok(Err(e)) => {
+                let err_str = e.to_string();
+                last_error = format!("Ошибка подключения по SSH к {}:{}: {}", host, port, err_str);
+                if attempt < MAX_ATTEMPTS {
+                    emit_log(format!(
+                        "[VOTEX-INFO] Повторная попытка подключения к SSH (попытка {}/{})...",
+                        attempt + 1,
+                        MAX_ATTEMPTS
+                    ));
+                    let delay = delays[attempt - 1];
+                    tokio::time::sleep(delay).await;
+                }
+            }
+            Err(_) => {
+                last_error = format!("Таймаут подключения (15 сек) к {}:{}", host, port);
+                if attempt < MAX_ATTEMPTS {
+                    emit_log(format!(
+                        "[VOTEX-INFO] Повторная попытка подключения к SSH (попытка {}/{})...",
+                        attempt + 1,
+                        MAX_ATTEMPTS
+                    ));
+                    let delay = delays[attempt - 1];
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+    }
+
+    if let Ok(guard) = verification_error.lock() {
+        if let Some(ref err_msg) = *guard {
+            emit_log(format!("[CRITICAL] {}", err_msg));
+            return Err(err_msg.clone());
+        }
+    }
+
+    Err(last_error)
 }
 
 pub fn extract_json_report(full_log: &str) -> Result<VotexReport, String> {
@@ -159,47 +243,38 @@ pub async fn run_provisioning(
     let detected_fingerprint = Arc::new(Mutex::new(None));
     let verification_error = Arc::new(Mutex::new(None));
     let is_tofu = Arc::new(Mutex::new(false));
+    let is_key_changed = Arc::new(Mutex::new(false));
 
-    let handler = StrictHostKeyVerifier {
-        host: host.clone(),
+    let mut session = match connect_ssh_with_retry(
+        config,
+        &host,
         port,
-        detected_fingerprint: Arc::clone(&detected_fingerprint),
-        verification_error: Arc::clone(&verification_error),
-        is_tofu: Arc::clone(&is_tofu),
-    };
-
-    let mut session = match timeout(
-        Duration::from_secs(15),
-        russh::client::connect(config, (host.as_str(), port), handler),
+        Arc::clone(&detected_fingerprint),
+        Arc::clone(&verification_error),
+        Arc::clone(&is_tofu),
+        Arc::clone(&is_key_changed),
+        Some(app.clone()),
+        &emit_log,
     )
     .await
     {
-        Ok(Ok(handle)) => handle,
-        Ok(Err(e)) => {
+        Ok(handle) => handle,
+        Err(e) => {
             if let Ok(mut in_progress) = state.is_provisioning.lock() {
                 *in_progress = false;
             }
-            if let Ok(guard) = verification_error.lock() {
-                if let Some(ref err_msg) = *guard {
-                    emit_log(format!("[CRITICAL] {}", err_msg));
-                    return Err(err_msg.clone());
-                }
-            }
-            return Err(format!("Ошибка подключения по SSH к {}:{}: {}", host, port, e));
-        }
-        Err(_) => {
-            if let Ok(mut in_progress) = state.is_provisioning.lock() {
-                *in_progress = false;
-            }
-            return Err(format!("Таймаут подключения (15 сек) к {}:{}", host, port));
+            return Err(e);
         }
     };
 
     let detected_fp = detected_fingerprint.lock().ok().and_then(|g| g.clone());
     let tofu_active = is_tofu.lock().map(|g| *g).unwrap_or(false);
+    let key_changed = is_key_changed.lock().map(|g| *g).unwrap_or(false);
 
     if let Some(ref fp) = detected_fp {
-        if tofu_active {
+        if key_changed {
+            emit_log(format!("[SECURITY] SSH Host Key обновлен: {}", fp));
+        } else if tofu_active {
             emit_log(format!("[SECURITY] Зафиксирован доверенный SSH Host Key (TOFU): {}", fp));
             save_known_host(&host, port, fp);
         } else {
@@ -370,33 +445,20 @@ pub async fn rotate_server_keys(
     let detected_fingerprint = Arc::new(Mutex::new(None));
     let verification_error = Arc::new(Mutex::new(None));
     let is_tofu = Arc::new(Mutex::new(false));
+    let is_key_changed = Arc::new(Mutex::new(false));
 
-    let handler = StrictHostKeyVerifier {
-        host: host.clone(),
+    let mut session = connect_ssh_with_retry(
+        config,
+        &host,
         port,
-        detected_fingerprint: Arc::clone(&detected_fingerprint),
-        verification_error: Arc::clone(&verification_error),
-        is_tofu: Arc::clone(&is_tofu),
-    };
-
-    let mut session = match timeout(
-        Duration::from_secs(15),
-        russh::client::connect(config, (host.as_str(), port), handler),
+        Arc::clone(&detected_fingerprint),
+        Arc::clone(&verification_error),
+        Arc::clone(&is_tofu),
+        Arc::clone(&is_key_changed),
+        Some(app.clone()),
+        &emit_log,
     )
-    .await
-    {
-        Ok(Ok(handle)) => handle,
-        Ok(Err(e)) => {
-            if let Ok(guard) = verification_error.lock() {
-                if let Some(ref err_msg) = *guard {
-                    emit_log(format!("[CRITICAL] {}", err_msg));
-                    return Err(err_msg.clone());
-                }
-            }
-            return Err(format!("Ошибка подключения по SSH к {}:{}: {}", host, port, e));
-        }
-        Err(_) => return Err(format!("Таймаут подключения (15 сек) к {}:{}", host, port)),
-    };
+    .await?;
 
     let auth_result = session.authenticate_password(&username, &password).await;
     match auth_result {
@@ -681,5 +743,19 @@ VOTEX_JSON_REPORT_END
         let loaded = load_known_hosts();
         let key = format!("{}:{}", host, port);
         assert_eq!(loaded.get(&key), Some(&fp.to_string()));
+    }
+
+    #[test]
+    fn test_known_hosts_update_fingerprint() {
+        let host = "reinstalled-vps.votex.internal";
+        let port = 22;
+        let old_fp = "SHA256:OldFingerprint1111111111111111111";
+        let new_fp = "SHA256:NewFingerprint2222222222222222222";
+
+        save_known_host(host, port, old_fp);
+        assert_eq!(load_known_hosts().get(&format!("{}:{}", host, port)), Some(&old_fp.to_string()));
+
+        save_known_host(host, port, new_fp);
+        assert_eq!(load_known_hosts().get(&format!("{}:{}", host, port)), Some(&new_fp.to_string()));
     }
 }

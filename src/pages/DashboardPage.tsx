@@ -377,7 +377,7 @@ export const DashboardPage: React.FC = () => {
                 <div className="p-1.5 rounded-lg bg-[#22C55E]/15 text-[#4ADE80]">
                   <Flame className="w-4 h-4" />
                 </div>
-                <StatusBadge size="sm" status={hasVps ? "online" : "neutral"} label={hasVps ? "UDP 2083" : "—"} />
+                <StatusBadge size="sm" status={hasVps ? "online" : "neutral"} label={hasVps ? "UDP 443" : "—"} />
               </div>
               <h4 className="text-xs font-bold text-[#ECFDF5]">Hysteria 2 (QUIC)</h4>
               <p className="text-[11px] text-[#A7F3D0]/70 mt-0.5">Низкий пинг для игр</p>

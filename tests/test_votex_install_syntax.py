@@ -85,7 +85,7 @@ class TestVotexInstallScript(unittest.TestCase):
 
         # UFW Ports
         self.assertIn("ufw default deny incoming", self.script_content)
-        expected_ports = ["22/tcp", "20443/tcp", "2053/tcp", "8443/tcp", "8443/udp", "2083/udp", "2083/tcp", "2088/tcp", "18080/tcp"]
+        expected_ports = ["22/tcp", "20443/tcp", "2053/tcp", "8443/tcp", "443/udp", "8443/udp", "2083/udp", "2083/tcp", "2088/tcp", "18080/tcp"]
         for port in expected_ports:
             self.assertIn(port, self.script_content, f"Port {port} must be configured in UFW rules")
 

@@ -77,6 +77,7 @@ rollback_installation() {
     ufw delete allow 20443/tcp >/dev/null 2>&1 || true
     ufw delete allow 2053/tcp >/dev/null 2>&1 || true
     ufw delete allow 8443/tcp >/dev/null 2>&1 || true
+    ufw delete allow 443/udp >/dev/null 2>&1 || true
     ufw delete allow 8443/udp >/dev/null 2>&1 || true
     ufw delete allow 2083/udp >/dev/null 2>&1 || true
     ufw delete allow 2083/tcp >/dev/null 2>&1 || true
@@ -84,8 +85,7 @@ rollback_installation() {
     ufw delete allow 2088/udp >/dev/null 2>&1 || true
     ufw delete allow 18080/tcp >/dev/null 2>&1 || true
     ufw allow "${SSH_PORT}/tcp" >/dev/null 2>&1 || true
-    iptables -t nat -D PREROUTING -p udp --dport 2083 -j REDIRECT --to-ports 8443 2>/dev/null || true
-    iptables -t nat -D PREROUTING -p udp --dport 443 -j REDIRECT --to-ports 8443 2>/dev/null || true
+    iptables -t nat -D PREROUTING -p udp --dport 2083 -j REDIRECT --to-ports 443 2>/dev/null || true
 
     log_warn "[ROLLBACK 5/5] Сервер полностью очищен и возвращен в исходное состояние."
     log_warn "[ROLLBACK] Доступ по SSH гарантированно сохранен на порту ${SSH_PORT}."
@@ -310,7 +310,8 @@ ufw allow "${SSH_PORT}/tcp" comment 'Votex SSH' > /dev/null 2>&1 || true
 ufw allow 20443/tcp comment 'Votex VLESS Reality Vision' > /dev/null 2>&1 || true
 ufw allow 2053/tcp comment 'Votex VLESS Reality SplitHTTP' > /dev/null 2>&1 || true
 ufw allow 8443/tcp comment 'Votex Reality gRPC & Hysteria TCP Ping' > /dev/null 2>&1 || true
-ufw allow 8443/udp comment 'Votex Hysteria 2 UDP' > /dev/null 2>&1 || true
+ufw allow 443/udp comment 'Votex Hysteria 2 UDP' > /dev/null 2>&1 || true
+ufw allow 8443/udp comment 'Votex Hysteria 2 UDP Legacy' > /dev/null 2>&1 || true
 ufw allow 2083/udp comment 'Votex Hysteria 2 UDP Legacy' > /dev/null 2>&1 || true
 ufw allow 2083/tcp comment 'Votex Hysteria 2 TCP Ping Legacy' > /dev/null 2>&1 || true
 ufw allow 2088/tcp comment 'Votex Shadowsocks-2022' > /dev/null 2>&1 || true
@@ -559,7 +560,7 @@ EOF
 
 # 5.2. Generate Hysteria 2 Server Configuration (/etc/hysteria/config.yaml)
 cat << EOF > /etc/hysteria/config.yaml
-listen: :8443
+listen: :443
 tls:
   cert: /etc/hysteria/server.crt
   key: /etc/hysteria/server.key
@@ -574,9 +575,8 @@ masquerade:
     rewriteHost: true
 EOF
 
-# Multi-port UDP redirection for Hysteria 2 (ports 2083 and 443 -> 8443)
-iptables -t nat -A PREROUTING -p udp --dport 2083 -j REDIRECT --to-ports 8443 > /dev/null 2>&1 || true
-iptables -t nat -A PREROUTING -p udp --dport 443 -j REDIRECT --to-ports 8443 > /dev/null 2>&1 || true
+# Multi-port UDP redirection for Hysteria 2 (legacy port 2083 -> 443)
+iptables -t nat -A PREROUTING -p udp --dport 2083 -j REDIRECT --to-ports 443 > /dev/null 2>&1 || true
 
 # Set proper permissions for /etc/hysteria and certificates
 chmod 755 /etc/hysteria
@@ -616,7 +616,7 @@ else
 fi
 
 if systemctl is-active --quiet hysteria-server; then
-    log_info "Hysteria 2 сервер успешно запущен (UDP порты 8443, 2083 активны)"
+    log_info "Hysteria 2 сервер успешно запущен (UDP 443 активен)"
 else
     log_warn "Hysteria 2 не запустился. Диагностика службы:"
     journalctl -u hysteria-server -n 12 --no-pager 2>&1 || true
@@ -687,7 +687,7 @@ def load_server_config(config_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]
 
 
 def build_base64_subscription(cfg: Dict[str, Any]) -> str:
-    """Generate Base64 encoded subscription link list with 5 protocols."""
+    """Generate Base64 encoded subscription link list with 6 protocols (including Auto-Select)."""
     server_ip = cfg.get("server_ip", "127.0.0.1")
     uuid = cfg.get("client_uuid", "")
     pub_key = cfg.get("reality_public_key", "")
@@ -703,6 +703,12 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     ss_auth_b64 = base64.urlsafe_b64encode(ss_auth_str.encode("utf-8")).decode("utf-8").rstrip("=")
 
     links: List[str] = [
+        (
+            f"vless://{uuid}@{server_ip}:20443"
+            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
+            f"&type=tcp&flow=xtls-rprx-vision&sni={sni}&sid={short_id}"
+            f"#Votex-Автовыбор-(Самый-быстрый)"
+        ),
         (
             f"vless://{uuid}@{server_ip}:20443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
@@ -723,8 +729,8 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
             f"#Votex-Reality-gRPC"
         ),
         (
-            f"hysteria2://{hy_pass}@{server_ip}:8443"
-            f"?insecure=1&sni={sni}"
+            f"hysteria2://{hy_pass}@{server_ip}:443/"
+            f"?insecure=1&allowInsecure=1&sni={sni}"
             f"#Votex-Hysteria2-Gaming"
         ),
         (
@@ -858,6 +864,11 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 "hy2",
                 "ss2022",
             ],
+        },
+        "observatory": {
+            "probeUrl": "http://www.gstatic.com/generate_204",
+            "probeInterval": "1m",
+            "enableConcurrency": True,
         },
         "dns": {
             "hosts": {
@@ -1041,7 +1052,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 "tag": "hy2",
                 "settings": {
                     "address": server_ip,
-                    "port": 8443,
+                    "port": 443,
                     "version": 2,
                 },
                 "streamSettings": {
@@ -1057,6 +1068,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                         "fingerprint": "firefox",
                         "serverName": sni,
                         "allowInsecure": True,
+                        "insecure": True,
                     },
                 },
             },
@@ -1460,7 +1472,7 @@ cat << EOF > /var/log/votex-report.json
       "vision": {"port": 20443, "latency_ms": ${LAT_VISION}, "status": "active"},
       "xhttp": {"port": 2053, "latency_ms": ${LAT_XHTTP}, "status": "active"},
       "grpc": {"port": 8443, "latency_ms": ${LAT_GRPC}, "status": "active"},
-      "hysteria2": {"port": 8443, "latency_ms": ${LAT_HY2}, "status": "active"},
+      "hysteria2": {"port": 443, "latency_ms": ${LAT_HY2}, "status": "active"},
       "shadowsocks": {"port": 2088, "latency_ms": ${LAT_SS}, "status": "active"}
     }
   },
@@ -1468,7 +1480,7 @@ cat << EOF > /var/log/votex-report.json
     "tcp_bbr": true,
     "fail2ban": true,
     "ufw": true,
-    "allowed_ports": [22, 20443, 2053, 8443, 2083, 2088, 18080]
+    "allowed_ports": [22, 20443, 2053, 8443, 443, 2083, 2088, 18080]
   }
 }
 EOF
@@ -1485,7 +1497,7 @@ echo -e "${CYAN}TCP BBR Ускорение:      ${NC}Включено (net.core
 echo -e "${CYAN}Маскировка SNI:         ${NC}${REALITY_SNI} (TLS 1.3 / HTTP/2 подтверждены)"
 echo -e "${CYAN}Задержка (Ping):        ${NC}${PING_MS} ms"
 echo -e "${CYAN}Скорость канала:        ${NC}${SPEED_MBPS} Mbps"
-echo -e "${CYAN}Протоколы All-In-One:   ${NC}Vision (20443), SplitHTTP (2053), gRPC (8443), Hysteria2 (8443), SS-2022 (2088)"
+echo -e "${CYAN}Протоколы All-In-One:   ${NC}Vision (20443), SplitHTTP (2053), gRPC (8443), Hysteria2 (443), SS-2022 (2088)"
 echo -e "${CYAN}Маршрутизация РФ:       ${NC}Direct (.ru, .su, Банки, Госуслуги, Ozon)"
 echo -e "${CYAN}Разблокировка ИИ:       ${NC}Proxy (Gemini, Claude, ChatGPT, YouTube, Discord)"
 echo -e "${CYAN}Анти-DPI защита:        ${NC}TLS Packet Fragmentation (1-3 packets, 100-200 len)"

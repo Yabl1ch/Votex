@@ -22,7 +22,7 @@ export const defaultProtocols: ProtocolLatencyItem[] = [
   {
     key: "hysteria2",
     name: "Hysteria 2 (QUIC)",
-    port: 2083,
+    port: 443,
     proto: "UDP",
     latency_ms: 28,
     tag: "Минимальный пинг для игр",

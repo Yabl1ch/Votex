@@ -42,7 +42,7 @@ export const ReportsPage: React.FC = () => {
     {
       key: "hysteria2",
       name: "Hysteria 2 (QUIC)",
-      port: 2083,
+      port: 443,
       proto: "UDP",
       latency_ms: hasVps ? (protoBench?.hysteria2?.latency_ms ?? 0) : 0,
       tag: hasVps ? "Минимальный пинг для игр" : "Ожидание настройки",

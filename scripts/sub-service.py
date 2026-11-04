@@ -44,7 +44,7 @@ def load_server_config(config_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]
 
 
 def build_base64_subscription(cfg: Dict[str, Any]) -> str:
-    """Generate Base64 encoded subscription link list with 5 protocols."""
+    """Generate Base64 encoded subscription link list with 6 protocols (including Auto-Select)."""
     server_ip = cfg.get("server_ip", "127.0.0.1")
     uuid = cfg.get("client_uuid", "")
     pub_key = cfg.get("reality_public_key", "")
@@ -60,6 +60,12 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     ss_auth_b64 = base64.urlsafe_b64encode(ss_auth_str.encode("utf-8")).decode("utf-8").rstrip("=")
 
     links: List[str] = [
+        (
+            f"vless://{uuid}@{server_ip}:20443"
+            f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
+            f"&type=tcp&flow=xtls-rprx-vision&sni={sni}&sid={short_id}"
+            f"#Votex-Автовыбор-(Самый-быстрый)"
+        ),
         (
             f"vless://{uuid}@{server_ip}:20443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
@@ -80,8 +86,8 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
             f"#Votex-Reality-gRPC"
         ),
         (
-            f"hysteria2://{hy_pass}@{server_ip}:8443"
-            f"?insecure=1&sni={sni}"
+            f"hysteria2://{hy_pass}@{server_ip}:443/"
+            f"?insecure=1&allowInsecure=1&sni={sni}"
             f"#Votex-Hysteria2-Gaming"
         ),
         (
@@ -215,6 +221,11 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 "hy2",
                 "ss2022",
             ],
+        },
+        "observatory": {
+            "probeUrl": "http://www.gstatic.com/generate_204",
+            "probeInterval": "1m",
+            "enableConcurrency": True,
         },
         "dns": {
             "hosts": {
@@ -398,7 +409,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 "tag": "hy2",
                 "settings": {
                     "address": server_ip,
-                    "port": 8443,
+                    "port": 443,
                     "version": 2,
                 },
                 "streamSettings": {
@@ -414,6 +425,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                         "fingerprint": "firefox",
                         "serverName": sni,
                         "allowInsecure": True,
+                        "insecure": True,
                     },
                 },
             },
