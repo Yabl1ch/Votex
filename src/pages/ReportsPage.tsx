@@ -42,7 +42,7 @@ export const ReportsPage: React.FC = () => {
     {
       key: "hysteria2",
       name: "Hysteria 2 (QUIC)",
-      port: 2083,
+      port: 443,
       proto: "UDP",
       latency_ms: hasVps ? (protoBench?.hysteria2?.latency_ms ?? 0) : 0,
       tag: hasVps ? "Минимальный пинг для игр" : "Ожидание настройки",
@@ -51,7 +51,7 @@ export const ReportsPage: React.FC = () => {
     {
       key: "vision",
       name: "VLESS Reality Vision",
-      port: 20443,
+      port: 443,
       proto: "TCP",
       latency_ms: hasVps ? (protoBench?.vision?.latency_ms ?? 0) : 0,
       tag: hasVps ? "Флагман против ТСПУ" : "Ожидание настройки",

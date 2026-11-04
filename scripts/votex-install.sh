@@ -74,6 +74,8 @@ rollback_installation() {
 
     # 4. Clean UFW firewall and iptables rules while preserving SSH
     log_info "[ROLLBACK 4/5] Восстановление правил фаервола (доступ SSH сохранен)..."
+    ufw delete allow 443/tcp >/dev/null 2>&1 || true
+    ufw delete allow 443/udp >/dev/null 2>&1 || true
     ufw delete allow 20443/tcp >/dev/null 2>&1 || true
     ufw delete allow 2053/tcp >/dev/null 2>&1 || true
     ufw delete allow 8443/tcp >/dev/null 2>&1 || true
@@ -84,8 +86,9 @@ rollback_installation() {
     ufw delete allow 2088/udp >/dev/null 2>&1 || true
     ufw delete allow 18080/tcp >/dev/null 2>&1 || true
     ufw allow "${SSH_PORT}/tcp" >/dev/null 2>&1 || true
-    iptables -t nat -D PREROUTING -p udp --dport 2083 -j REDIRECT --to-ports 8443 2>/dev/null || true
-    iptables -t nat -D PREROUTING -p udp --dport 443 -j REDIRECT --to-ports 8443 2>/dev/null || true
+    iptables -t nat -D PREROUTING -p tcp --dport 20443 -j REDIRECT --to-ports 443 2>/dev/null || true
+    iptables -t nat -D PREROUTING -p udp --dport 8443 -j REDIRECT --to-ports 443 2>/dev/null || true
+    iptables -t nat -D PREROUTING -p udp --dport 2083 -j REDIRECT --to-ports 443 2>/dev/null || true
 
     log_warn "[ROLLBACK 5/5] Сервер полностью очищен и возвращен в исходное состояние."
     log_warn "[ROLLBACK] Доступ по SSH гарантированно сохранен на порту ${SSH_PORT}."
@@ -177,7 +180,7 @@ log_info "Используемый порт администрирования S
 
 # Port conflict detection and auto-resolution
 check_and_resolve_port_conflicts() {
-    local votex_ports=(20443 2053 8443 2088 18080)
+    local votex_ports=(443 20443 2053 8443 2088 18080)
     log_info "Проверка доступности рабочих портов Votex..."
     for p in "${votex_ports[@]}"; do
         if ss -tuln 2>/dev/null | grep -q ":${p}\b"; then
@@ -307,6 +310,8 @@ ufw default deny incoming > /dev/null 2>&1 || true
 ufw default allow outgoing > /dev/null 2>&1 || true
 ufw allow "${SSH_PORT}/tcp" comment 'Votex SSH' > /dev/null 2>&1 || true
 [[ "${SSH_PORT}" != "22" ]] && ufw allow 22/tcp comment 'Votex Default SSH' > /dev/null 2>&1 || true
+ufw allow 443/tcp comment 'Votex VLESS Reality Vision TCP' > /dev/null 2>&1 || true
+ufw allow 443/udp comment 'Votex Hysteria 2 UDP' > /dev/null 2>&1 || true
 ufw allow 20443/tcp comment 'Votex VLESS Reality Vision' > /dev/null 2>&1 || true
 ufw allow 2053/tcp comment 'Votex VLESS Reality SplitHTTP' > /dev/null 2>&1 || true
 ufw allow 8443/tcp comment 'Votex Reality gRPC & Hysteria TCP Ping' > /dev/null 2>&1 || true
@@ -430,7 +435,7 @@ cat << EOF > /usr/local/etc/xray/config.json
   "inbounds": [
     {
       "tag": "vless-vision",
-      "port": 20443,
+      "port": 443,
       "protocol": "vless",
       "settings": {
         "clients": [
@@ -559,11 +564,10 @@ EOF
 
 # 5.2. Generate Hysteria 2 Server Configuration (/etc/hysteria/config.yaml)
 cat << EOF > /etc/hysteria/config.yaml
-listen: :8443
+listen: :443
 tls:
   cert: /etc/hysteria/server.crt
   key: /etc/hysteria/server.key
-  sniGuard: disable
 auth:
   type: password
   password: "${HY_PASSWORD}"
@@ -574,9 +578,10 @@ masquerade:
     rewriteHost: true
 EOF
 
-# Multi-port UDP redirection for Hysteria 2 (ports 2083 and 443 -> 8443)
-iptables -t nat -A PREROUTING -p udp --dport 2083 -j REDIRECT --to-ports 8443 > /dev/null 2>&1 || true
-iptables -t nat -A PREROUTING -p udp --dport 443 -j REDIRECT --to-ports 8443 > /dev/null 2>&1 || true
+# Port fallback and multi-port redirection
+iptables -t nat -A PREROUTING -p tcp --dport 20443 -j REDIRECT --to-ports 443 > /dev/null 2>&1 || true
+iptables -t nat -A PREROUTING -p udp --dport 8443 -j REDIRECT --to-ports 443 > /dev/null 2>&1 || true
+iptables -t nat -A PREROUTING -p udp --dport 2083 -j REDIRECT --to-ports 443 > /dev/null 2>&1 || true
 
 # Set proper permissions for /etc/hysteria and certificates
 chmod 755 /etc/hysteria
@@ -609,14 +614,14 @@ systemctl enable --now hysteria-server > /dev/null 2>&1 || systemctl restart hys
 
 sleep 2
 if systemctl is-active --quiet xray; then
-    log_info "Xray-core успешно запущен (порты 20443, 2053, 8443, 2083-TCP, 2088 активны)"
+    log_info "Xray-core успешно запущен (порты 443-TCP, 2053, 8443, 2088 активны)"
 else
     log_warn "Xray не запустился. Диагностика службы:"
     journalctl -u xray -n 12 --no-pager 2>&1 || true
 fi
 
 if systemctl is-active --quiet hysteria-server; then
-    log_info "Hysteria 2 сервер успешно запущен (UDP порты 8443, 2083 активны)"
+    log_info "Hysteria 2 сервер успешно запущен (UDP порт 443 активен, редиректы 8443/2083)"
 else
     log_warn "Hysteria 2 не запустился. Диагностика службы:"
     journalctl -u hysteria-server -n 12 --no-pager 2>&1 || true
@@ -697,6 +702,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     ss_pass = cfg.get("ss_password", "")
     cert_sha256 = cfg.get("hy_cert_sha256", "")
     sni = cfg.get("reality_sni", "addons.mozilla.org")
+    hy_pin_param = f"&pinSHA256={cert_sha256}" if cert_sha256 else ""
 
     # SS-2022 userinfo base64 encoded (2022-blake3-aes-128-gcm:pass)
     ss_auth_str = f"2022-blake3-aes-128-gcm:{ss_pass}"
@@ -704,7 +710,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
 
     links: List[str] = [
         (
-            f"vless://{uuid}@{server_ip}:20443"
+            f"vless://{uuid}@{server_ip}:443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
             f"&type=tcp&flow=xtls-rprx-vision&sni={sni}&sid={short_id}"
             f"#Votex-Reality-Vision"
@@ -723,8 +729,8 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
             f"#Votex-Reality-gRPC"
         ),
         (
-            f"hysteria2://{hy_pass}@{server_ip}:8443"
-            f"?insecure=1&sni={sni}"
+            f"hysteria2://{hy_pass}@{server_ip}:443"
+            f"/?insecure=1&sni={sni}{hy_pin_param}"
             f"#Votex-Hysteria2-Gaming"
         ),
         (
@@ -733,7 +739,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
         ),
     ]
 
-    joined_links = "\n".join(links)
+    joined_links = "\r\n".join(links)
     return base64.b64encode(joined_links.encode("utf-8")).decode("utf-8")
 
 
@@ -921,7 +927,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "vnext": [
                         {
                             "address": server_ip,
-                            "port": 20443,
+                            "port": 443,
                             "users": [
                                 {
                                     "id": uuid,
@@ -1041,7 +1047,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 "tag": "hy2",
                 "settings": {
                     "address": server_ip,
-                    "port": 8443,
+                    "port": 443,
                     "version": 2,
                 },
                 "streamSettings": {
@@ -1051,13 +1057,24 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                         "auth": hy_pass,
                         "version": 2,
                     },
-                    "tlsSettings": {
-                        "alpn": ["h3"],
-                        "enableSessionResumption": False,
-                        "fingerprint": "firefox",
-                        "serverName": sni,
-                        "allowInsecure": True,
-                    },
+                    "tlsSettings": (
+                        {
+                            "alpn": ["h3"],
+                            "enableSessionResumption": False,
+                            "fingerprint": "firefox",
+                            "serverName": sni,
+                            "allowInsecure": True,
+                            "pinnedPeerCertSha256": cert_sha256,
+                        }
+                        if cert_sha256
+                        else {
+                            "alpn": ["h3"],
+                            "enableSessionResumption": False,
+                            "fingerprint": "firefox",
+                            "serverName": sni,
+                            "allowInsecure": True,
+                        }
+                    ),
                 },
             },
             {
@@ -1457,10 +1474,10 @@ cat << EOF > /var/log/votex-report.json
     "latency_ms": ${PING_MS},
     "speed_mbps": ${SPEED_MBPS},
     "protocols": {
-      "vision": {"port": 20443, "latency_ms": ${LAT_VISION}, "status": "active"},
+      "vision": {"port": 443, "latency_ms": ${LAT_VISION}, "status": "active"},
       "xhttp": {"port": 2053, "latency_ms": ${LAT_XHTTP}, "status": "active"},
       "grpc": {"port": 8443, "latency_ms": ${LAT_GRPC}, "status": "active"},
-      "hysteria2": {"port": 8443, "latency_ms": ${LAT_HY2}, "status": "active"},
+      "hysteria2": {"port": 443, "latency_ms": ${LAT_HY2}, "status": "active"},
       "shadowsocks": {"port": 2088, "latency_ms": ${LAT_SS}, "status": "active"}
     }
   },
@@ -1468,7 +1485,7 @@ cat << EOF > /var/log/votex-report.json
     "tcp_bbr": true,
     "fail2ban": true,
     "ufw": true,
-    "allowed_ports": [22, 20443, 2053, 8443, 2083, 2088, 18080]
+    "allowed_ports": [22, 443, 20443, 2053, 8443, 2083, 2088, 18080]
   }
 }
 EOF
@@ -1485,7 +1502,7 @@ echo -e "${CYAN}TCP BBR Ускорение:      ${NC}Включено (net.core
 echo -e "${CYAN}Маскировка SNI:         ${NC}${REALITY_SNI} (TLS 1.3 / HTTP/2 подтверждены)"
 echo -e "${CYAN}Задержка (Ping):        ${NC}${PING_MS} ms"
 echo -e "${CYAN}Скорость канала:        ${NC}${SPEED_MBPS} Mbps"
-echo -e "${CYAN}Протоколы All-In-One:   ${NC}Vision (20443), SplitHTTP (2053), gRPC (8443), Hysteria2 (8443), SS-2022 (2088)"
+echo -e "${CYAN}Протоколы All-In-One:   ${NC}Vision (443), SplitHTTP (2053), gRPC (8443), Hysteria2 (443), SS-2022 (2088)"
 echo -e "${CYAN}Маршрутизация РФ:       ${NC}Direct (.ru, .su, Банки, Госуслуги, Ozon)"
 echo -e "${CYAN}Разблокировка ИИ:       ${NC}Proxy (Gemini, Claude, ChatGPT, YouTube, Discord)"
 echo -e "${CYAN}Анти-DPI защита:        ${NC}TLS Packet Fragmentation (1-3 packets, 100-200 len)"

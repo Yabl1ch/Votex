@@ -54,6 +54,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     ss_pass = cfg.get("ss_password", "")
     cert_sha256 = cfg.get("hy_cert_sha256", "")
     sni = cfg.get("reality_sni", "addons.mozilla.org")
+    hy_pin_param = f"&pinSHA256={cert_sha256}" if cert_sha256 else ""
 
     # SS-2022 userinfo base64 encoded (2022-blake3-aes-128-gcm:pass)
     ss_auth_str = f"2022-blake3-aes-128-gcm:{ss_pass}"
@@ -61,7 +62,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
 
     links: List[str] = [
         (
-            f"vless://{uuid}@{server_ip}:20443"
+            f"vless://{uuid}@{server_ip}:443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
             f"&type=tcp&flow=xtls-rprx-vision&sni={sni}&sid={short_id}"
             f"#Votex-Reality-Vision"
@@ -80,8 +81,8 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
             f"#Votex-Reality-gRPC"
         ),
         (
-            f"hysteria2://{hy_pass}@{server_ip}:8443"
-            f"?insecure=1&sni={sni}"
+            f"hysteria2://{hy_pass}@{server_ip}:443"
+            f"/?insecure=1&sni={sni}{hy_pin_param}"
             f"#Votex-Hysteria2-Gaming"
         ),
         (
@@ -90,7 +91,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
         ),
     ]
 
-    joined_links = "\n".join(links)
+    joined_links = "\r\n".join(links)
     return base64.b64encode(joined_links.encode("utf-8")).decode("utf-8")
 
 
@@ -278,7 +279,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "vnext": [
                         {
                             "address": server_ip,
-                            "port": 20443,
+                            "port": 443,
                             "users": [
                                 {
                                     "id": uuid,
@@ -398,7 +399,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 "tag": "hy2",
                 "settings": {
                     "address": server_ip,
-                    "port": 8443,
+                    "port": 443,
                     "version": 2,
                 },
                 "streamSettings": {
@@ -408,13 +409,24 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                         "auth": hy_pass,
                         "version": 2,
                     },
-                    "tlsSettings": {
-                        "alpn": ["h3"],
-                        "enableSessionResumption": False,
-                        "fingerprint": "firefox",
-                        "serverName": sni,
-                        "allowInsecure": True,
-                    },
+                    "tlsSettings": (
+                        {
+                            "alpn": ["h3"],
+                            "enableSessionResumption": False,
+                            "fingerprint": "firefox",
+                            "serverName": sni,
+                            "allowInsecure": True,
+                            "pinnedPeerCertSha256": cert_sha256,
+                        }
+                        if cert_sha256
+                        else {
+                            "alpn": ["h3"],
+                            "enableSessionResumption": False,
+                            "fingerprint": "firefox",
+                            "serverName": sni,
+                            "allowInsecure": True,
+                        }
+                    ),
                 },
             },
             {
