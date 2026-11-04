@@ -48,13 +48,13 @@ pub async fn test_connection(host: String, port: u16) -> Result<ConnectionTestRe
 }
 
 #[tauri::command]
-pub async fn fetch_server_metrics(host: String) -> Result<ServerMetrics, String> {
+pub async fn fetch_server_metrics(host: String, token: Option<String>) -> Result<ServerMetrics, String> {
     let host = host.trim().to_string();
     if host.is_empty() {
         return Err("Адрес хоста не указан".to_string());
     }
 
-    // Check SSH port 22
+    // 1. Check SSH port 22
     let ssh_addr = format!("{}:22", host);
     let start = Instant::now();
     let is_reachable = match timeout(Duration::from_secs(3), TcpStream::connect(&ssh_addr)).await {
@@ -81,10 +81,78 @@ pub async fn fetch_server_metrics(host: String) -> Result<ServerMetrics, String>
         _ => false,
     };
 
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .unwrap_or_default();
+
+    // 2. Query GeoIP (http://ip-api.com/json/{host})
+    let mut location_city = String::new();
+    let mut location_country = String::new();
+    let mut location_country_code = String::new();
+
+    if !host.starts_with("127.") && host != "localhost" {
+        let geo_url = format!("http://ip-api.com/json/{}?fields=status,country,countryCode,city", host);
+        if let Ok(resp) = client.get(&geo_url).send().await {
+            if let Ok(geo_json) = resp.json::<serde_json::Value>().await {
+                if geo_json.get("status").and_then(|v| v.as_str()) == Some("success") {
+                    location_city = geo_json.get("city").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    location_country = geo_json.get("country").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    location_country_code = geo_json.get("countryCode").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                }
+            }
+        }
+    }
+
+    // 3. Query system stats from sub-service endpoint if subscription_active and token available
+    let mut uptime_seconds: u64 = 0;
+    let mut uptime_str = if is_reachable { "В сети".to_string() } else { "Оффлайн".to_string() };
+    let mut cpu_percent: f32 = 0.0;
+    let mut ram_used_mb: u64 = 0;
+    let mut ram_total_mb: u64 = 0;
+    let mut ram_percent: f32 = 0.0;
+
+    if subscription_active {
+        if let Some(tok) = token.filter(|t| !t.trim().is_empty()) {
+            let stats_url = format!("http://{}:18080/stats/{}", host, tok.trim());
+            if let Ok(resp) = client.get(&stats_url).send().await {
+                if let Ok(stats_json) = resp.json::<serde_json::Value>().await {
+                    if let Some(up_sec) = stats_json.get("uptime_seconds").and_then(|v| v.as_u64()) {
+                        uptime_seconds = up_sec;
+                    }
+                    if let Some(up_s) = stats_json.get("uptime_str").and_then(|v| v.as_str()) {
+                        uptime_str = up_s.to_string();
+                    }
+                    if let Some(cpu) = stats_json.get("cpu_percent").and_then(|v| v.as_f64()) {
+                        cpu_percent = cpu as f32;
+                    }
+                    if let Some(r_used) = stats_json.get("ram_used_mb").and_then(|v| v.as_u64()) {
+                        ram_used_mb = r_used;
+                    }
+                    if let Some(r_tot) = stats_json.get("ram_total_mb").and_then(|v| v.as_u64()) {
+                        ram_total_mb = r_tot;
+                    }
+                    if let Some(r_pct) = stats_json.get("ram_percent").and_then(|v| v.as_f64()) {
+                        ram_percent = r_pct as f32;
+                    }
+                }
+            }
+        }
+    }
+
     Ok(ServerMetrics {
         host,
         is_reachable,
         latency_ms,
+        uptime_seconds,
+        uptime_str,
+        cpu_percent,
+        ram_used_mb,
+        ram_total_mb,
+        ram_percent,
+        location_city,
+        location_country,
+        location_country_code,
         subscription_active,
         ufw_ok: reality_active || subscription_active,
         timestamp: chrono::Utc::now().to_rfc3339(),

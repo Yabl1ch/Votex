@@ -204,7 +204,7 @@ class TestSubscriptionHttpServer(unittest.TestCase):
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req) as resp:
             self.assertEqual(resp.status, 200)
-            self.assertEqual(resp.headers.get("Profile-Title"), "Votex Private Cloud")
+            self.assertEqual(resp.headers.get("Profile-Title"), "Votex")
             self.assertEqual(resp.headers.get("Profile-Update-Interval"), "24")
             self.assertIn("upload=0;", resp.headers.get("Subscription-Userinfo"))
             body = resp.read().decode("utf-8")
@@ -218,9 +218,9 @@ class TestSubscriptionHttpServer(unittest.TestCase):
         with urllib.request.urlopen(url) as resp:
             self.assertEqual(resp.status, 200)
             self.assertEqual(resp.headers.get("Content-Type"), "application/json; charset=utf-8")
-            self.assertEqual(resp.headers.get("Profile-Title"), "Votex Private Cloud | JSON")
+            self.assertEqual(resp.headers.get("Profile-Title"), "Votex")
             data = json.loads(resp.read().decode("utf-8"))
-            self.assertEqual(data["remarks"], "Votex Private Cloud | JSON")
+            self.assertEqual(data["remarks"], "Votex-auto")
             self.assertIn("burstObservatory", data)
             self.assertIn("outbounds", data)
             self.assertIn("routing", data)
@@ -231,9 +231,22 @@ class TestSubscriptionHttpServer(unittest.TestCase):
         with urllib.request.urlopen(req) as resp:
             self.assertEqual(resp.status, 200)
             self.assertEqual(resp.headers.get("Content-Type"), "application/json; charset=utf-8")
-            self.assertEqual(resp.headers.get("Profile-Title"), "Votex Private Cloud | JSON")
+            self.assertEqual(resp.headers.get("Profile-Title"), "Votex")
             data = json.loads(resp.read().decode("utf-8"))
-            self.assertEqual(data["remarks"], "Votex Private Cloud | JSON")
+            self.assertEqual(data["remarks"], "Votex-auto")
+
+    def test_200_system_stats_endpoint(self):
+        url = f"http://127.0.0.1:{self.port}/stats/{self.token}"
+        with urllib.request.urlopen(url) as resp:
+            self.assertEqual(resp.status, 200)
+            self.assertEqual(resp.headers.get("Content-Type"), "application/json; charset=utf-8")
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data["status"], "online")
+            self.assertIn("uptime_seconds", data)
+            self.assertIn("uptime_str", data)
+            self.assertIn("cpu_percent", data)
+            self.assertIn("ram_used_mb", data)
+            self.assertIn("ram_total_mb", data)
 
 
 if __name__ == "__main__":

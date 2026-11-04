@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Server,
   Globe,
@@ -25,18 +25,28 @@ export const DashboardPage: React.FC = () => {
     report,
     isConnected,
     latency,
+    metrics,
     pingHistory,
     quickPing,
+    fetchLiveMetrics,
     setActiveTab,
     vpsConfig,
   } = useAppStore();
 
   const [copied, setCopied] = useState(false);
-  const [isPinging, setIsPinging] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const serverIp = (report?.server_ip || vpsConfig.host || "").trim();
   const subUrl = report?.subscription_url || "";
   const hasVps = Boolean(serverIp && isConnected);
+
+  // Initial live telemetry poll on mount
+  useEffect(() => {
+    if (serverIp) {
+      fetchLiveMetrics(serverIp, report?.subscription_token);
+      quickPing(serverIp, vpsConfig.port || 22);
+    }
+  }, [serverIp, report?.subscription_token]);
 
   const handleCopyLink = async () => {
     if (!subUrl) return;
@@ -49,13 +59,16 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
-  const handleQuickPing = async () => {
+  const handleRefresh = async () => {
     if (!serverIp) return;
-    setIsPinging(true);
+    setIsRefreshing(true);
     try {
-      await quickPing(serverIp, 22);
+      await Promise.all([
+        quickPing(serverIp, vpsConfig.port || 22),
+        fetchLiveMetrics(serverIp, report?.subscription_token),
+      ]);
     } finally {
-      setIsPinging(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -84,9 +97,9 @@ export const DashboardPage: React.FC = () => {
           <GlassButton
             variant="secondary"
             size="md"
-            onClick={handleQuickPing}
-            loading={isPinging}
-            icon={<RefreshCw className={`w-4 h-4 text-[#4ADE80] ${isPinging ? "animate-spin" : ""}`} />}
+            onClick={handleRefresh}
+            loading={isRefreshing}
+            icon={<RefreshCw className={`w-4 h-4 text-[#4ADE80] ${isRefreshing ? "animate-spin" : ""}`} />}
             className="whitespace-nowrap"
           >
             Обновить статус
@@ -118,7 +131,11 @@ export const DashboardPage: React.FC = () => {
                 {serverIp || "—"}
               </span>
               <span className="text-[10px] text-[#6EE7B7] truncate block mt-0.5">
-                {hasVps ? "Амстердам, NL" : "Отсутствует"}
+                {hasVps
+                  ? metrics?.location_city
+                    ? `${metrics.location_city}, ${metrics.location_country_code || metrics.location_country}`
+                    : "Сервер в сети"
+                  : "Отсутствует"}
               </span>
             </div>
 
@@ -127,10 +144,10 @@ export const DashboardPage: React.FC = () => {
                 <Clock className="w-3 h-3 text-[#4ADE80]" /> Uptime
               </span>
               <span className="text-xs sm:text-sm font-mono font-bold text-[#ECFDF5] truncate block">
-                {hasVps ? "14д 6ч 22м" : "0ч 0м"}
+                {hasVps ? (metrics?.uptime_str || "В сети") : "0ч 0м"}
               </span>
               <span className="text-[10px] text-[#6EE7B7] truncate block mt-0.5">
-                {hasVps ? "Без перезагрузок" : "Оффлайн"}
+                {hasVps ? (metrics?.is_reachable ? "Без перезагрузок" : "Проверка связи...") : "Оффлайн"}
               </span>
             </div>
 
@@ -139,10 +156,12 @@ export const DashboardPage: React.FC = () => {
                 <Activity className="w-3 h-3 text-[#4ADE80]" /> Пинг (TCP)
               </span>
               <span className="text-xs sm:text-sm font-mono font-bold text-[#ECFDF5] truncate block">
-                {hasVps && latency !== null ? `${latency} мс` : "0 мс"}
+                {hasVps && (latency !== null || metrics?.latency_ms)
+                  ? `${latency ?? metrics?.latency_ms} мс`
+                  : "0 мс"}
               </span>
               <span className="text-[10px] text-[#4ADE80] truncate block mt-0.5">
-                {hasVps ? "0% потерь пакетов" : "0% (Нет связи)"}
+                {hasVps ? "0% потерь пакетов" : "Нет связи"}
               </span>
             </div>
 
@@ -151,10 +170,18 @@ export const DashboardPage: React.FC = () => {
                 <Cpu className="w-3 h-3 text-[#4ADE80]" /> Нагрузка ЦП
               </span>
               <span className="text-xs sm:text-sm font-mono font-bold text-[#ECFDF5] truncate block">
-                {hasVps ? "3.2% / 1.8 ГБ" : "0% / 0 ГБ"}
+                {hasVps && metrics?.cpu_percent !== undefined && metrics.cpu_percent > 0
+                  ? `${metrics.cpu_percent}% / ${metrics.ram_used_mb ? (metrics.ram_used_mb / 1024).toFixed(1) + ' ГБ' : '—'}`
+                  : hasVps
+                  ? "Минимальная"
+                  : "0% / 0 ГБ"}
               </span>
               <span className="text-[10px] text-[#6EE7B7] truncate block mt-0.5">
-                {hasVps ? "ОЗУ: 24% свободно" : "ОЗУ: 0%"}
+                {hasVps && metrics?.ram_percent !== undefined && metrics.ram_percent > 0
+                  ? `ОЗУ: ${metrics.ram_percent}% исп.`
+                  : hasVps
+                  ? "ОЗУ: в норме"
+                  : "ОЗУ: 0%"}
               </span>
             </div>
           </div>
@@ -207,7 +234,7 @@ export const DashboardPage: React.FC = () => {
           glow
           icon={<ExternalLink className="w-5 h-5 text-[#4ADE80]" />}
           title="Ссылка подписки"
-          subtitle="Формат Base64 + Sing-Box JSON"
+          subtitle="Умная маршрутизация Votex-auto и 5 протоколов"
           badge={
             <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full font-mono ${
               hasVps
@@ -221,7 +248,7 @@ export const DashboardPage: React.FC = () => {
           <div className="space-y-3.5 my-1">
             <p className="text-sm text-[#A7F3D0]/80 leading-relaxed">
               {hasVps
-                ? "Персональный URL для автоматического импорта 5 настроенных протоколов в мобильный или десктопный клиент."
+                ? "Персональный URL для автоматического импорта узла Votex-auto (leastPing) или 5 протоколов в мобильный и десктопный клиент."
                 : "Ссылка появится здесь после первоначальной настройки сервера в Мастере установки."}
             </p>
 
@@ -247,7 +274,7 @@ export const DashboardPage: React.FC = () => {
                 {copied
                   ? "Ссылка скопирована в буфер!"
                   : subUrl
-                  ? "Копировать ссылку для Happ"
+                  ? "Копировать ссылку для Happ (Votex-auto)"
                   : "Сначала настройте сервер"}
               </GlassButton>
             </div>

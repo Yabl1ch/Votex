@@ -63,6 +63,7 @@ export interface AppState {
   saveVpsToVault: (record: VaultRecord) => Promise<boolean>;
   clearSavedVps: () => Promise<boolean>;
   quickPing: (host?: string, port?: number) => Promise<number>;
+  fetchLiveMetrics: (host?: string, token?: string) => Promise<ServerMetrics | null>;
   regenerateToken: () => Promise<string>;
   restartServiceAction: (service: string) => Promise<string>;
   rebootServerAction: () => Promise<string>;
@@ -318,7 +319,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           },
           isConnected: true,
         }));
-        // Ping live server in background
+        // Fetch live metrics and ping in background
+        get().fetchLiveMetrics(record.host, record.subscription_token);
         get().quickPing(record.host, record.port);
         return record;
       } else {
@@ -388,6 +390,34 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (err) {
       console.warn("Tauri quick ping fallback:", err);
       return 0;
+    }
+  },
+
+  fetchLiveMetrics: async (host?: string, token?: string) => {
+    const targetHost = (host || get().vpsConfig.host || get().report?.server_ip || "").trim();
+    if (!targetHost) {
+      set({ metrics: null, latency: null, isConnected: false });
+      return null;
+    }
+    const targetToken = token || get().report?.subscription_token || "";
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const result = await invoke<ServerMetrics>("fetch_server_metrics", {
+        host: targetHost,
+        token: targetToken || null,
+      });
+      set({
+        metrics: result,
+        isConnected: result.is_reachable,
+        latency: result.latency_ms ?? get().latency,
+      });
+      if (result.latency_ms) {
+        get().appendPingHistory(result.latency_ms);
+      }
+      return result;
+    } catch (err) {
+      console.warn("Tauri fetch_server_metrics fallback:", err);
+      return null;
     }
   },
 

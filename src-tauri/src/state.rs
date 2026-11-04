@@ -60,6 +60,24 @@ pub struct ServerMetrics {
     pub host: String,
     pub is_reachable: bool,
     pub latency_ms: Option<u64>,
+    #[serde(default)]
+    pub uptime_seconds: u64,
+    #[serde(default)]
+    pub uptime_str: String,
+    #[serde(default)]
+    pub cpu_percent: f32,
+    #[serde(default)]
+    pub ram_used_mb: u64,
+    #[serde(default)]
+    pub ram_total_mb: u64,
+    #[serde(default)]
+    pub ram_percent: f32,
+    #[serde(default)]
+    pub location_city: String,
+    #[serde(default)]
+    pub location_country: String,
+    #[serde(default)]
+    pub location_country_code: String,
     pub subscription_active: bool,
     pub ufw_ok: bool,
     pub timestamp: String,

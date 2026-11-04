@@ -74,6 +74,15 @@ export interface ServerMetrics {
   host: string;
   is_reachable: boolean;
   latency_ms?: number;
+  uptime_seconds?: number;
+  uptime_str?: string;
+  cpu_percent?: number;
+  ram_used_mb?: number;
+  ram_total_mb?: number;
+  ram_percent?: number;
+  location_city?: string;
+  location_country?: string;
+  location_country_code?: string;
   subscription_active: boolean;
   ufw_ok: boolean;
   timestamp: string;

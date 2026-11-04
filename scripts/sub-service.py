@@ -194,7 +194,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
     ]
 
     profile: Dict[str, Any] = {
-        "remarks": "Votex Private Cloud | JSON",
+        "remarks": "Votex-auto",
         "burstObservatory": {
             "pingConfig": {
                 "destination": "http://www.gstatic.com/generate_204",
@@ -506,6 +506,71 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
     return profile
 
 
+def get_system_stats() -> Dict[str, Any]:
+    """Collect real system metrics from Linux /proc filesystem."""
+    stats: Dict[str, Any] = {
+        "status": "online",
+        "uptime_seconds": 0,
+        "uptime_str": "0м",
+        "cpu_percent": 0.0,
+        "ram_used_mb": 0,
+        "ram_total_mb": 0,
+        "ram_percent": 0.0,
+        "load_avg": [0.0, 0.0, 0.0],
+    }
+    # Uptime from /proc/uptime
+    try:
+        if os.path.exists("/proc/uptime"):
+            with open("/proc/uptime", "r", encoding="utf-8") as f:
+                up_sec = int(float(f.readline().split()[0]))
+                stats["uptime_seconds"] = up_sec
+                days = up_sec // 86400
+                hours = (up_sec % 86400) // 3600
+                mins = (up_sec % 3600) // 60
+                if days > 0:
+                    stats["uptime_str"] = f"{days}д {hours}ч {mins}м"
+                elif hours > 0:
+                    stats["uptime_str"] = f"{hours}ч {mins}м"
+                else:
+                    stats["uptime_str"] = f"{mins}м"
+    except Exception:
+        pass
+
+    # RAM from /proc/meminfo
+    try:
+        if os.path.exists("/proc/meminfo"):
+            mem_info: Dict[str, int] = {}
+            with open("/proc/meminfo", "r", encoding="utf-8") as f:
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        val = parts[1].strip().split()[0]
+                        if val.isdigit():
+                            mem_info[key] = int(val)
+            total_kb = mem_info.get("MemTotal", 0)
+            avail_kb = mem_info.get("MemAvailable", mem_info.get("MemFree", 0))
+            used_kb = max(0, total_kb - avail_kb)
+            if total_kb > 0:
+                stats["ram_total_mb"] = total_kb // 1024
+                stats["ram_used_mb"] = used_kb // 1024
+                stats["ram_percent"] = round((used_kb / total_kb) * 100, 1)
+    except Exception:
+        pass
+
+    # Load avg from /proc/loadavg or os.getloadavg()
+    try:
+        if hasattr(os, "getloadavg"):
+            lavg = os.getloadavg()
+            stats["load_avg"] = [round(x, 2) for x in lavg]
+            cpu_count = os.cpu_count() or 1
+            stats["cpu_percent"] = min(100.0, round((lavg[0] / cpu_count) * 100, 1))
+    except Exception:
+        pass
+
+    return stats
+
+
 class VotexSubHandler(http.server.BaseHTTPRequestHandler):
     """HTTP Request Handler for Votex subscription endpoint."""
 
@@ -530,12 +595,29 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
             token = cfg.get("subscription_token", "")
 
             parsed = urllib.parse.urlparse(self.path)
-            path = parsed.path
+            clean_path = parsed.path.rstrip("/")
             query = urllib.parse.parse_qs(parsed.query)
 
-            # Validate secret token path (handling optional trailing slash)
+            # Live system stats endpoint for Dashboard
+            is_stats_req = (
+                clean_path == f"/stats/{token}"
+                or (clean_path == f"/sub/{token}" and query.get("action", [""])[0] == "stats")
+            )
+            if is_stats_req:
+                stats_data = get_system_stats()
+                resp_bytes = json.dumps(stats_data, ensure_ascii=False).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(resp_bytes)))
+                self.end_headers()
+                if not head_only:
+                    self.wfile.write(resp_bytes)
+                return
+
+            # Validate secret token path
             expected_path = f"/sub/{token}"
-            if path.rstrip("/") != expected_path:
+            if clean_path != expected_path:
                 self.send_response(404)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.send_header("Access-Control-Allow-Origin", "*")
@@ -561,7 +643,7 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Profile-Title", "Votex Private Cloud | JSON")
+                self.send_header("Profile-Title", "Votex")
                 self.send_header("Profile-Type", "xray")
                 self.send_header("Profile-Update-Interval", "24")
                 self.send_header(
@@ -579,7 +661,7 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
 
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
-                self.send_header("Profile-Title", "Votex Private Cloud")
+                self.send_header("Profile-Title", "Votex")
                 self.send_header("Profile-Update-Interval", "24")
                 self.send_header(
                     "Subscription-Userinfo",
