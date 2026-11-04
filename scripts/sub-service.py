@@ -46,6 +46,8 @@ def load_server_config(config_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]
 def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     """Generate Base64 encoded subscription link list with 5 protocols."""
     server_ip = str(cfg.get("server_ip", "127.0.0.1")).strip()
+    server_ip_dash = server_ip.replace(".", "-")
+    sslip_domain = f"{server_ip_dash}.sslip.io"
     uuid = str(cfg.get("client_uuid", "")).strip()
     pub_key = str(cfg.get("reality_public_key", "")).strip()
     short_id = str(cfg.get("reality_short_id", "")).strip()
@@ -59,7 +61,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
 
     links: List[str] = [
         (
-            f"vless://{uuid}@{server_ip}:443"
+            f"vless://{uuid}@{server_ip}:20443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
             f"&type=tcp&flow=xtls-rprx-vision&sni={sni}&sid={short_id}"
             f"#Votex-Reality-Vision"
@@ -78,8 +80,8 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
             f"#Votex-Reality-gRPC"
         ),
         (
-            f"hysteria2://{hy_pass}@{server_ip}:443"
-            f"?insecure=1&sni={sni}"
+            f"hysteria2://{hy_pass}@{sslip_domain}:443"
+            f"/?insecure=1&sni={sslip_domain}"
             f"#Votex-Hysteria2-Gaming"
         ),
         (
@@ -95,6 +97,8 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
 def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Generate complete JSON client profile with burstObservatory, routing & fragmentation."""
     server_ip = cfg.get("server_ip", "127.0.0.1")
+    server_ip_dash = server_ip.replace(".", "-")
+    sslip_domain = f"{server_ip_dash}.sslip.io"
     uuid = cfg.get("client_uuid", "")
     pub_key = cfg.get("reality_public_key", "")
     short_id = cfg.get("reality_short_id", "")
@@ -276,7 +280,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "vnext": [
                         {
                             "address": server_ip,
-                            "port": 443,
+                            "port": 20443,
                             "users": [
                                 {
                                     "id": uuid,
@@ -395,7 +399,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 "protocol": "hysteria",
                 "tag": "hy2",
                 "settings": {
-                    "address": server_ip,
+                    "address": sslip_domain,
                     "port": 443,
                     "version": 2,
                 },
@@ -411,8 +415,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                             "alpn": ["h3"],
                             "enableSessionResumption": False,
                             "fingerprint": "firefox",
-                            "serverName": sni,
-                            "allowInsecure": True,
+                            "serverName": sslip_domain,
                             "pinnedPeerCertSha256": cert_sha256,
                         }
                         if cert_sha256
@@ -420,8 +423,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                             "alpn": ["h3"],
                             "enableSessionResumption": False,
                             "fingerprint": "firefox",
-                            "serverName": sni,
-                            "allowInsecure": True,
+                            "serverName": sslip_domain,
                         }
                     ),
                 },

@@ -48,7 +48,7 @@ class TestSubscriptionService(unittest.TestCase):
         # Check 1: Vision link
         vision_link = links[0]
         self.assertTrue(vision_link.startswith("vless://"))
-        self.assertIn("198.51.100.42:443", vision_link)
+        self.assertIn("198.51.100.42:20443", vision_link)
         self.assertIn("flow=xtls-rprx-vision", vision_link)
         self.assertIn("sni=addons.mozilla.org", vision_link)
         self.assertIn("e8a93ef0-5b74-4b53-90d2-5b91b8f17bc1", vision_link)
@@ -72,7 +72,7 @@ class TestSubscriptionService(unittest.TestCase):
         # Check 4: Hysteria 2 link
         hy2_link = links[3]
         self.assertTrue(hy2_link.startswith("hysteria2://"))
-        self.assertIn("198.51.100.42:443", hy2_link)
+        self.assertIn("198-51-100-42.sslip.io:443", hy2_link)
         self.assertIn("secret_hy_pass_2026", hy2_link)
         self.assertIn("Votex-Hysteria2-Gaming", hy2_link)
 
@@ -97,7 +97,7 @@ class TestSubscriptionService(unittest.TestCase):
         )
         self.assertEqual(
             outbound_map["hy2"]["streamSettings"]["tlsSettings"]["serverName"],
-            "www.microsoft.com",
+            "198-51-100-42.sslip.io",
         )
 
     def test_build_json_profile(self):

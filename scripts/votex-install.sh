@@ -84,11 +84,13 @@ rollback_installation() {
     ufw delete allow 2083/tcp >/dev/null 2>&1 || true
     ufw delete allow 2088/tcp >/dev/null 2>&1 || true
     ufw delete allow 2088/udp >/dev/null 2>&1 || true
+    ufw delete allow 36723/udp >/dev/null 2>&1 || true
     ufw delete allow 18080/tcp >/dev/null 2>&1 || true
     ufw allow "${SSH_PORT}/tcp" >/dev/null 2>&1 || true
-    iptables -t nat -D PREROUTING -p tcp --dport 20443 -j REDIRECT --to-ports 443 2>/dev/null || true
+    iptables -t nat -D PREROUTING -p tcp --dport 443 -j REDIRECT --to-ports 20443 2>/dev/null || true
     iptables -t nat -D PREROUTING -p udp --dport 8443 -j REDIRECT --to-ports 443 2>/dev/null || true
     iptables -t nat -D PREROUTING -p udp --dport 2083 -j REDIRECT --to-ports 443 2>/dev/null || true
+    iptables -t nat -D PREROUTING -p udp --dport 36723 -j REDIRECT --to-ports 443 2>/dev/null || true
 
     log_warn "[ROLLBACK 5/5] Сервер полностью очищен и возвращен в исходное состояние."
     log_warn "[ROLLBACK] Доступ по SSH гарантированно сохранен на порту ${SSH_PORT}."
@@ -318,6 +320,7 @@ ufw allow 8443/tcp comment 'Votex Reality gRPC & Hysteria TCP Ping' > /dev/null 
 ufw allow 8443/udp comment 'Votex Hysteria 2 UDP' > /dev/null 2>&1 || true
 ufw allow 2083/udp comment 'Votex Hysteria 2 UDP Legacy' > /dev/null 2>&1 || true
 ufw allow 2083/tcp comment 'Votex Hysteria 2 TCP Ping Legacy' > /dev/null 2>&1 || true
+ufw allow 36723/udp comment 'Votex Hysteria 2 UDP High Port' > /dev/null 2>&1 || true
 ufw allow 2088/tcp comment 'Votex Shadowsocks-2022' > /dev/null 2>&1 || true
 ufw allow 2088/udp comment 'Votex Shadowsocks-2022 UDP' > /dev/null 2>&1 || true
 ufw allow 18080/tcp comment 'Votex Subscription Microservice' > /dev/null 2>&1 || true
@@ -422,8 +425,8 @@ SUBSCRIPTION_TOKEN=$(openssl rand -hex 16)
 SERVER_IP_DASH=$(echo "${SERVER_IP}" | tr '.' '-')
 openssl ecparam -name prime256v1 -genkey -noout -out /etc/hysteria/server.key > /dev/null 2>&1 || true
 openssl req -new -x509 -key /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 \
-  -subj "/CN=${REALITY_SNI}" \
-  -addext "subjectAltName=DNS:${REALITY_SNI},DNS:${SERVER_IP_DASH}.sslip.io,IP:${SERVER_IP}" > /dev/null 2>&1 || true
+  -subj "/CN=${SERVER_IP_DASH}.sslip.io" \
+  -addext "subjectAltName=DNS:${SERVER_IP_DASH}.sslip.io,DNS:${REALITY_SNI},IP:${SERVER_IP}" > /dev/null 2>&1 || true
 HY_CERT_SHA256=$(openssl x509 -in /etc/hysteria/server.crt -outform der 2>/dev/null | sha256sum 2>/dev/null | awk '{print $1}' || echo "")
 
 # 5.1. Generate Xray Server Configuration (/usr/local/etc/xray/config.json)
@@ -442,7 +445,7 @@ cat << EOF > /usr/local/etc/xray/config.json
   "inbounds": [
     {
       "tag": "vless-vision",
-      "port": 443,
+      "port": 20443,
       "protocol": "vless",
       "settings": {
         "clients": [
@@ -575,6 +578,7 @@ listen: :443
 tls:
   cert: /etc/hysteria/server.crt
   key: /etc/hysteria/server.key
+  sniGuard: disable
 auth:
   type: password
   password: "${HY_PASSWORD}"
@@ -586,9 +590,10 @@ masquerade:
 EOF
 
 # Port fallback and multi-port redirection
-iptables -t nat -A PREROUTING -p tcp --dport 20443 -j REDIRECT --to-ports 443 > /dev/null 2>&1 || true
+iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-ports 20443 > /dev/null 2>&1 || true
 iptables -t nat -A PREROUTING -p udp --dport 8443 -j REDIRECT --to-ports 443 > /dev/null 2>&1 || true
 iptables -t nat -A PREROUTING -p udp --dport 2083 -j REDIRECT --to-ports 443 > /dev/null 2>&1 || true
+iptables -t nat -A PREROUTING -p udp --dport 36723 -j REDIRECT --to-ports 443 > /dev/null 2>&1 || true
 
 # Set proper permissions for /etc/hysteria and certificates
 chmod 755 /etc/hysteria
@@ -701,6 +706,8 @@ def load_server_config(config_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]
 def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     """Generate Base64 encoded subscription link list with 5 protocols."""
     server_ip = str(cfg.get("server_ip", "127.0.0.1")).strip()
+    server_ip_dash = server_ip.replace(".", "-")
+    sslip_domain = f"{server_ip_dash}.sslip.io"
     uuid = str(cfg.get("client_uuid", "")).strip()
     pub_key = str(cfg.get("reality_public_key", "")).strip()
     short_id = str(cfg.get("reality_short_id", "")).strip()
@@ -714,7 +721,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
 
     links: List[str] = [
         (
-            f"vless://{uuid}@{server_ip}:443"
+            f"vless://{uuid}@{server_ip}:20443"
             f"?security=reality&encryption=none&pbk={pub_key}&headerType=none&fp=firefox"
             f"&type=tcp&flow=xtls-rprx-vision&sni={sni}&sid={short_id}"
             f"#Votex-Reality-Vision"
@@ -733,8 +740,8 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
             f"#Votex-Reality-gRPC"
         ),
         (
-            f"hysteria2://{hy_pass}@{server_ip}:443"
-            f"?insecure=1&sni={sni}"
+            f"hysteria2://{hy_pass}@{sslip_domain}:443"
+            f"/?insecure=1&sni={sslip_domain}"
             f"#Votex-Hysteria2-Gaming"
         ),
         (
@@ -750,6 +757,8 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
 def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Generate complete JSON client profile with burstObservatory, routing & fragmentation."""
     server_ip = cfg.get("server_ip", "127.0.0.1")
+    server_ip_dash = server_ip.replace(".", "-")
+    sslip_domain = f"{server_ip_dash}.sslip.io"
     uuid = cfg.get("client_uuid", "")
     pub_key = cfg.get("reality_public_key", "")
     short_id = cfg.get("reality_short_id", "")
@@ -931,7 +940,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     "vnext": [
                         {
                             "address": server_ip,
-                            "port": 443,
+                            "port": 20443,
                             "users": [
                                 {
                                     "id": uuid,
@@ -1050,7 +1059,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 "protocol": "hysteria",
                 "tag": "hy2",
                 "settings": {
-                    "address": server_ip,
+                    "address": sslip_domain,
                     "port": 443,
                     "version": 2,
                 },
@@ -1066,8 +1075,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                             "alpn": ["h3"],
                             "enableSessionResumption": False,
                             "fingerprint": "firefox",
-                            "serverName": sni,
-                            "allowInsecure": True,
+                            "serverName": sslip_domain,
                             "pinnedPeerCertSha256": cert_sha256,
                         }
                         if cert_sha256
@@ -1075,8 +1083,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
                             "alpn": ["h3"],
                             "enableSessionResumption": False,
                             "fingerprint": "firefox",
-                            "serverName": sni,
-                            "allowInsecure": True,
+                            "serverName": sslip_domain,
                         }
                     ),
                 },
@@ -1478,7 +1485,7 @@ cat << EOF > /var/log/votex-report.json
     "latency_ms": ${PING_MS},
     "speed_mbps": ${SPEED_MBPS},
     "protocols": {
-      "vision": {"port": 443, "latency_ms": ${LAT_VISION}, "status": "active"},
+      "vision": {"port": 20443, "latency_ms": ${LAT_VISION}, "status": "active"},
       "xhttp": {"port": 2053, "latency_ms": ${LAT_XHTTP}, "status": "active"},
       "grpc": {"port": 8443, "latency_ms": ${LAT_GRPC}, "status": "active"},
       "hysteria2": {"port": 443, "latency_ms": ${LAT_HY2}, "status": "active"},
