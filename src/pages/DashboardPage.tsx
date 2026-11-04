@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import {
   Server,
-  FileCode,
   Globe,
   Copy,
   Check,
@@ -35,7 +34,6 @@ export const DashboardPage: React.FC = () => {
   } = useAppStore();
 
   const [copied, setCopied] = useState(false);
-  const [copiedJson, setCopiedJson] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const serverIp = (report?.server_ip || vpsConfig.host || "").trim();
@@ -58,17 +56,6 @@ export const DashboardPage: React.FC = () => {
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.warn("Failed to copy link to clipboard:", err);
-    }
-  };
-
-  const handleCopyJsonLink = async () => {
-    if (!subUrl) return;
-    try {
-      await navigator.clipboard.writeText(`${subUrl}?format=json`);
-      setCopiedJson(true);
-      setTimeout(() => setCopiedJson(false), 2000);
-    } catch (err) {
-      console.warn("Failed to copy JSON link to clipboard:", err);
     }
   };
 
@@ -275,7 +262,7 @@ export const DashboardPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-2 pt-2">
+            <div className="pt-2">
               <GlassButton
                 variant="primary"
                 size="md"
@@ -289,19 +276,6 @@ export const DashboardPage: React.FC = () => {
                   : subUrl
                   ? "Копировать ссылку для Happ"
                   : "Сначала настройте сервер"}
-              </GlassButton>
-
-              <GlassButton
-                variant="secondary"
-                size="sm"
-                onClick={handleCopyJsonLink}
-                disabled={!subUrl}
-                icon={copiedJson ? <Check className="w-4 h-4 text-[#4ADE80]" /> : <FileCode className="w-4 h-4 text-[#4ADE80]" />}
-                className="w-full whitespace-nowrap text-xs"
-              >
-                {copiedJson
-                  ? "JSON-ссылка скопирована!"
-                  : "Копировать Smart Routing (JSON)"}
               </GlassButton>
             </div>
 
