@@ -20,6 +20,7 @@ import { useAppStore } from "../store";
 export const SubscriptionPage: React.FC = () => {
   const { report, regenerateToken, rotateServerKeysAction, vpsConfig } = useAppStore();
   const [copiedLink, setCopiedLink] = useState(false);
+  const [subFormat, setSubFormat] = useState<"b64" | "json">("b64");
   const [tokenRegenerating, setTokenRegenerating] = useState(false);
   const [keyRotating, setKeyRotating] = useState(false);
   const [tokenFeedback, setTokenFeedback] = useState<string | null>(null);
@@ -30,17 +31,18 @@ export const SubscriptionPage: React.FC = () => {
 
   const subUrl = report?.subscription_url || "";
   const hasSub = Boolean(report && subUrl);
+  const activeSubUrl = subFormat === "json" && subUrl ? `${subUrl}?format=json` : subUrl;
 
-  // Generate QR Code data URL whenever subUrl changes
+  // Generate QR Code data URL whenever activeSubUrl changes
   useEffect(() => {
     let isMounted = true;
-    if (!subUrl) {
+    if (!activeSubUrl) {
       setQrDataUrl(null);
       return;
     }
     const generateQr = async () => {
       try {
-        const url = await QRCode.toDataURL(subUrl, {
+        const url = await QRCode.toDataURL(activeSubUrl, {
           width: 280,
           margin: 2,
           color: {
@@ -60,12 +62,12 @@ export const SubscriptionPage: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [subUrl]);
+  }, [activeSubUrl]);
 
   const handleCopyLink = async () => {
-    if (!subUrl) return;
+    if (!activeSubUrl) return;
     try {
-      await navigator.clipboard.writeText(subUrl);
+      await navigator.clipboard.writeText(activeSubUrl);
       setCopiedLink(true);
       setTimeout(() => setCopiedLink(false), 2000);
     } catch (err) {
@@ -143,12 +145,38 @@ export const SubscriptionPage: React.FC = () => {
         >
           <div className="space-y-4 my-1">
             <div>
-              <span className="text-xs text-[#A7F3D0]/70 uppercase font-semibold block mb-1.5">
-                Полный URL ссылки подписки:
-              </span>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                <span className="text-xs text-[#A7F3D0]/70 uppercase font-semibold">
+                  {subFormat === "b64" ? "Ссылка подписки (5 протоколов):" : "Ссылка Smart Routing (JSON):"}
+                </span>
+                <div className="flex items-center gap-1 bg-[rgba(6,16,12,0.85)] p-0.5 rounded-lg border border-[rgba(74,222,128,0.2)]">
+                  <button
+                    type="button"
+                    onClick={() => setSubFormat("b64")}
+                    className={`px-2.5 py-1 text-xs rounded-md font-medium transition-all cursor-pointer ${
+                      subFormat === "b64"
+                        ? "bg-[#4ADE80] text-[#06100C] font-semibold shadow-sm"
+                        : "text-[#A7F3D0]/70 hover:text-[#ECFDF5]"
+                    }`}
+                  >
+                    5 протоколов
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSubFormat("json")}
+                    className={`px-2.5 py-1 text-xs rounded-md font-medium transition-all cursor-pointer ${
+                      subFormat === "json"
+                        ? "bg-[#4ADE80] text-[#06100C] font-semibold shadow-sm"
+                        : "text-[#A7F3D0]/70 hover:text-[#ECFDF5]"
+                    }`}
+                  >
+                    Smart Routing (/ JSON)
+                  </button>
+                </div>
+              </div>
               <div className="p-3.5 rounded-xl bg-[rgba(8,20,15,0.85)] border border-[rgba(74,222,128,0.2)] font-mono text-sm break-all select-all">
-                {subUrl ? (
-                  <span className="text-[#4ADE80]">{subUrl}</span>
+                {activeSubUrl ? (
+                  <span className="text-[#4ADE80]">{activeSubUrl}</span>
                 ) : (
                   <span className="text-[#A7F3D0]/40 italic">
                     Подписка отсутствует. Запустите установку во вкладке «Мастер установки».
@@ -172,7 +200,9 @@ export const SubscriptionPage: React.FC = () => {
               </div>
               <div className="p-3 rounded-xl bg-[rgba(8,20,15,0.7)] border border-[rgba(74,222,128,0.12)]">
                 <span className="text-xs text-[#A7F3D0]/60 uppercase block">Формат выдачи</span>
-                <span className="text-sm font-mono text-[#4ADE80] block mt-0.5">Base64 + JSON</span>
+                <span className="text-sm font-mono text-[#4ADE80] block mt-0.5">
+                  {subFormat === "b64" ? "Base64 (5 узлов)" : "JSON Smart Routing"}
+                </span>
               </div>
             </div>
 
@@ -198,11 +228,15 @@ export const SubscriptionPage: React.FC = () => {
                   {copiedLink
                     ? "Ссылка скопирована в буфер!"
                     : hasSub
-                    ? "Копировать ссылку для Happ"
+                    ? subFormat === "b64"
+                      ? "Копировать 5 протоколов для Happ"
+                      : "Копировать Smart Routing (JSON) для Happ"
                     : "Ссылка недоступна (настройте сервер)"}
                 </GlassButton>
                 <span className="text-[11px] text-[#A7F3D0]/70 block mt-1 text-center">
-                  Включает 5 протоколов обхода блокировок (Vision, SplitHTTP, gRPC, Hysteria 2, Shadowsocks-2022)
+                  {subFormat === "b64"
+                    ? "5 независимых узлов в Happ и v2rayN с раздельным пингом (Vision, SplitHTTP, gRPC, Hysteria 2, Shadowsocks-2022)"
+                    : "Единый профиль со встроенным ядром Xray и правилами прямого доступа к РФ (маркируется «/ JSON» в Happ)"}
                 </span>
               </div>
 

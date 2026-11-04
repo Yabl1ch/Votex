@@ -250,9 +250,9 @@ class TestSubscriptionHttpServer(unittest.TestCase):
         with urllib.request.urlopen(url) as resp:
             self.assertEqual(resp.status, 200)
             self.assertEqual(resp.headers.get("Content-Type"), "application/json; charset=utf-8")
-            self.assertEqual(resp.headers.get("Profile-Title"), "Votex")
+            self.assertEqual(resp.headers.get("Profile-Title"), "Votex Smart Routing")
             data = json.loads(resp.read().decode("utf-8"))
-            self.assertEqual(data["remarks"], "Votex")
+            self.assertEqual(data["remarks"], "Votex Smart Routing")
             self.assertIn("burstObservatory", data)
             self.assertIn("outbounds", data)
             self.assertIn("routing", data)

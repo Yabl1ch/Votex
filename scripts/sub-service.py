@@ -201,7 +201,7 @@ def build_json_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
     ]
 
     profile: Dict[str, Any] = {
-        "remarks": "Votex",
+        "remarks": "Votex Smart Routing",
         "burstObservatory": {
             "pingConfig": {
                 "destination": "http://cp.cloudflare.com/generate_204",
@@ -672,7 +672,7 @@ class VotexSubHandler(http.server.BaseHTTPRequestHandler):
 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Profile-Title", "Votex")
+                self.send_header("Profile-Title", "Votex Smart Routing")
                 self.send_header("Profile-Type", "xray")
                 self.send_header("Profile-Update-Interval", "24")
                 self.send_header("Profile-Test-Url", "http://cp.cloudflare.com/generate_204")
