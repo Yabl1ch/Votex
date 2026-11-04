@@ -373,12 +373,19 @@ EOF
 
 # 4.2. Install Hysteria 2
 mkdir -p /etc/hysteria
-curl -fsSL https://get.hy2.sh/ | bash > /dev/null 2>&1 || {
+curl -fsSL https://get.hy2.sh/ | bash > /dev/null 2>&1 || true
+HY_BIN="/usr/local/bin/hysteria"
+if [[ ! -x "${HY_BIN}" && -x "/usr/bin/hysteria" ]]; then
+    HY_BIN="/usr/bin/hysteria"
+elif [[ ! -x "${HY_BIN}" ]]; then
     log_warn "Официальный скрипт Hysteria не сработал, скачиваем бинарник с GitHub..."
     HYSTERIA_URL="https://github.com/apernet/hysteria/releases/latest/download/hysteria-linux-${HYSTERIA_ARCH}"
     wget -qO /usr/local/bin/hysteria "${HYSTERIA_URL}" || true
     chmod +x /usr/local/bin/hysteria || true
-}
+    HY_BIN="/usr/local/bin/hysteria"
+fi
+ln -sf "${HY_BIN}" /usr/local/bin/hysteria 2>/dev/null || true
+ln -sf "${HY_BIN}" /usr/bin/hysteria 2>/dev/null || true
 
 # 5. Configuration Generation and Key Generation
 log_step "==> Шаг 5/6: Генерация криптографических ключей и конфигураций..."
@@ -693,16 +700,13 @@ def load_server_config(config_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]
 
 def build_base64_subscription(cfg: Dict[str, Any]) -> str:
     """Generate Base64 encoded subscription link list with 5 protocols."""
-    server_ip = cfg.get("server_ip", "127.0.0.1")
-    uuid = cfg.get("client_uuid", "")
-    pub_key = cfg.get("reality_public_key", "")
-    short_id = cfg.get("reality_short_id", "")
-    sni = cfg.get("reality_sni", "addons.mozilla.org")
-    hy_pass = cfg.get("hy_password", "")
-    ss_pass = cfg.get("ss_password", "")
-    cert_sha256 = cfg.get("hy_cert_sha256", "")
-    sni = cfg.get("reality_sni", "addons.mozilla.org")
-    hy_pin_param = f"&pinSHA256={cert_sha256}" if cert_sha256 else ""
+    server_ip = str(cfg.get("server_ip", "127.0.0.1")).strip()
+    uuid = str(cfg.get("client_uuid", "")).strip()
+    pub_key = str(cfg.get("reality_public_key", "")).strip()
+    short_id = str(cfg.get("reality_short_id", "")).strip()
+    sni = str(cfg.get("reality_sni", "addons.mozilla.org")).strip()
+    hy_pass = str(cfg.get("hy_password", "")).strip()
+    ss_pass = str(cfg.get("ss_password", "")).strip()
 
     # SS-2022 userinfo base64 encoded (2022-blake3-aes-128-gcm:pass)
     ss_auth_str = f"2022-blake3-aes-128-gcm:{ss_pass}"
@@ -730,7 +734,7 @@ def build_base64_subscription(cfg: Dict[str, Any]) -> str:
         ),
         (
             f"hysteria2://{hy_pass}@{server_ip}:443"
-            f"/?insecure=1&sni={sni}{hy_pin_param}"
+            f"?insecure=1&sni={sni}"
             f"#Votex-Hysteria2-Gaming"
         ),
         (

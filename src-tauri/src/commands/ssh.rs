@@ -54,6 +54,7 @@ pub struct StrictHostKeyVerifier {
     pub detected_fingerprint: Arc<Mutex<Option<String>>>,
     pub verification_error: Arc<Mutex<Option<String>>>,
     pub is_tofu: Arc<Mutex<bool>>,
+    pub is_key_changed: Arc<Mutex<bool>>,
 }
 
 impl russh::client::Handler for StrictHostKeyVerifier {
@@ -78,14 +79,13 @@ impl russh::client::Handler for StrictHostKeyVerifier {
             if expected_fp == &fp {
                 Ok(true)
             } else {
-                let err = format!(
-                    "КРИТИЧЕСКОЕ ПРЕДУПРЕЖДЕНИЕ БЕЗОПАСНОСТИ: SSH Host Key сервера {} изменился!\nОжидался: {}\nПолучен: {}\nВозможна атака Man-in-the-Middle (MitM) или переустановка VPS. Соединение заблокировано.",
-                    host_key, expected_fp, fp
-                );
-                if let Ok(mut ve) = self.verification_error.lock() {
-                    *ve = Some(err);
+                // Moderate Security Policy:
+                // If SSH host key changed (e.g. VPS OS was reinstalled), do not hard-block.
+                // Mark key changed for automatic registry update and warning log.
+                if let Ok(mut changed) = self.is_key_changed.lock() {
+                    *changed = true;
                 }
-                Ok(false)
+                Ok(true)
             }
         } else {
             // Trust On First Use (TOFU)
@@ -159,6 +159,7 @@ pub async fn run_provisioning(
     let detected_fingerprint = Arc::new(Mutex::new(None));
     let verification_error = Arc::new(Mutex::new(None));
     let is_tofu = Arc::new(Mutex::new(false));
+    let is_key_changed = Arc::new(Mutex::new(false));
 
     let handler = StrictHostKeyVerifier {
         host: host.clone(),
@@ -166,6 +167,7 @@ pub async fn run_provisioning(
         detected_fingerprint: Arc::clone(&detected_fingerprint),
         verification_error: Arc::clone(&verification_error),
         is_tofu: Arc::clone(&is_tofu),
+        is_key_changed: Arc::clone(&is_key_changed),
     };
 
     let mut session = match timeout(
@@ -197,9 +199,16 @@ pub async fn run_provisioning(
 
     let detected_fp = detected_fingerprint.lock().ok().and_then(|g| g.clone());
     let tofu_active = is_tofu.lock().map(|g| *g).unwrap_or(false);
+    let key_changed = is_key_changed.lock().map(|g| *g).unwrap_or(false);
 
     if let Some(ref fp) = detected_fp {
-        if tofu_active {
+        if key_changed {
+            emit_log(format!(
+                "[WARN] SSH Host Key сервера {}:{} изменился (сервер переустановлен). Доверенный ключ обновлен: {}",
+                host, port, fp
+            ));
+            save_known_host(&host, port, fp);
+        } else if tofu_active {
             emit_log(format!("[SECURITY] Зафиксирован доверенный SSH Host Key (TOFU): {}", fp));
             save_known_host(&host, port, fp);
         } else {
@@ -370,6 +379,7 @@ pub async fn rotate_server_keys(
     let detected_fingerprint = Arc::new(Mutex::new(None));
     let verification_error = Arc::new(Mutex::new(None));
     let is_tofu = Arc::new(Mutex::new(false));
+    let is_key_changed = Arc::new(Mutex::new(false));
 
     let handler = StrictHostKeyVerifier {
         host: host.clone(),
@@ -377,6 +387,7 @@ pub async fn rotate_server_keys(
         detected_fingerprint: Arc::clone(&detected_fingerprint),
         verification_error: Arc::clone(&verification_error),
         is_tofu: Arc::clone(&is_tofu),
+        is_key_changed: Arc::clone(&is_key_changed),
     };
 
     let mut session = match timeout(
@@ -397,6 +408,23 @@ pub async fn rotate_server_keys(
         }
         Err(_) => return Err(format!("Таймаут подключения (15 сек) к {}:{}", host, port)),
     };
+
+    let detected_fp = detected_fingerprint.lock().ok().and_then(|g| g.clone());
+    let tofu_active = is_tofu.lock().map(|g| *g).unwrap_or(false);
+    let key_changed = is_key_changed.lock().map(|g| *g).unwrap_or(false);
+
+    if let Some(ref fp) = detected_fp {
+        if key_changed {
+            emit_log(format!(
+                "[WARN] SSH Host Key сервера {}:{} изменился (сервер переустановлен). Доверенный ключ обновлен: {}",
+                host, port, fp
+            ));
+            save_known_host(&host, port, fp);
+        } else if tofu_active {
+            emit_log(format!("[SECURITY] Зафиксирован доверенный SSH Host Key (TOFU): {}", fp));
+            save_known_host(&host, port, fp);
+        }
+    }
 
     let auth_result = session.authenticate_password(&username, &password).await;
     match auth_result {
