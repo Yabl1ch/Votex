@@ -69,19 +69,32 @@ class TestVotexInstallScript(unittest.TestCase):
         self.assertIn('SERVER_IP', self.script_content)
 
     def test_hardening_configurations(self):
-        """Ensure TCP BBR, Fail2ban, and UFW are properly configured."""
-        # Sysctl
+        """Ensure TCP BBR, Fail2ban, UFW, Swap, and OOM protection are properly configured."""
+        # Sysctl & Memory
         self.assertIn("/etc/sysctl.d/99-votex.conf", self.script_content)
         self.assertIn("net.ipv4.tcp_congestion_control = bbr", self.script_content)
         self.assertIn("net.ipv4.tcp_syncookies = 1", self.script_content)
         self.assertIn("net.ipv4.conf.all.rp_filter = 1", self.script_content)
+        self.assertIn("vm.swappiness = 10", self.script_content)
+        self.assertIn("vm.vfs_cache_pressure = 50", self.script_content)
 
-        # Fail2ban
+        # 2GB Swap Protection
+        self.assertIn("swapon --show", self.script_content)
+        self.assertIn("/swapfile", self.script_content)
+        self.assertIn("fallocate -l 2G /swapfile", self.script_content)
+
+        # Fail2ban (Targeted iptables to avoid CGNAT collateral lockout)
         self.assertIn("/etc/fail2ban/jail.d/votex-ssh.local", self.script_content)
-        self.assertIn("maxretry = 4", self.script_content)
+        self.assertIn("maxretry = 5", self.script_content)
         self.assertIn("findtime = 600", self.script_content)
-        self.assertIn("bantime = 86400", self.script_content)
-        self.assertIn("banaction = ufw", self.script_content)
+        self.assertIn("bantime = 43200", self.script_content)
+        self.assertIn('banaction = iptables-multiport[port="${SSH_PORT}", protocol=tcp]', self.script_content)
+
+        # Service Hardening (OOMScoreAdjust and crash loop immunity)
+        self.assertIn("OOMScoreAdjust=-500", self.script_content)
+        self.assertIn("StartLimitIntervalSec=0", self.script_content)
+        self.assertIn("Restart=always", self.script_content)
+        self.assertIn("RestartSec=3s", self.script_content)
 
         # UFW Ports
         self.assertIn("ufw default deny incoming", self.script_content)
@@ -153,12 +166,26 @@ class TestVotexInstallScript(unittest.TestCase):
         self.assertIn("ufw allow \"${SSH_PORT}/tcp\"", self.script_content)
 
     def test_sni_dynamic_selection_routine(self):
-        """Ensure pre-deployment SNI validation (TLS 1.3 + ALPN h2) is configured."""
+        """Ensure pre-deployment SNI validation (TLS 1.3 + ALPN h2) is configured without blocked domains."""
         self.assertIn("select_best_sni()", self.script_content)
         self.assertIn("REALITY_SNI", self.script_content)
         self.assertIn("openssl s_client -connect", self.script_content)
         self.assertIn("alpn h2", self.script_content)
         self.assertIn("tls1_3", self.script_content)
+
+        # Candidate pool checks
+        self.assertIn('"addons.mozilla.org"', self.script_content)
+        self.assertIn('"dl.google.com"', self.script_content)
+        self.assertIn('"www.microsoft.com"', self.script_content)
+        self.assertIn('"speed.cloudflare.com"', self.script_content)
+
+        # Forbidden Apple domains in SNI candidates
+        sni_section = self.script_content[
+            self.script_content.find("select_best_sni()") : self.script_content.find("REALITY_SNI=")
+        ]
+        self.assertNotIn("gateway.icloud.com", sni_section)
+        self.assertNotIn("mask.icloud.com", sni_section)
+        self.assertNotIn("www.apple.com", sni_section)
 
     def test_port_conflict_resolution_and_distro_checks(self):
         """Ensure port conflicts and distro/systemd checks exist."""

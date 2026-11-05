@@ -151,6 +151,18 @@ SERVER_IP=$(curl -s4 --max-time 4 https://api.ipify.org 2>/dev/null || \
 SERVER_IP=$(echo "${SERVER_IP}" | tr -d '[:space:]')
 log_info "Определен внешний IPv4 сервера: ${SERVER_IP}"
 
+# 1.1. Swap Memory Protection (2GB Swap for low-RAM VPS against OOM-Killer)
+if [[ $(swapon --show | wc -l) -le 1 ]]; then
+    log_info "Создание 2GB файла подкачки (Swap) для защиты от OOM-Killer..."
+    fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048
+    chmod 600 /swapfile
+    mkswap /swapfile >/dev/null 2>&1
+    swapon /swapfile >/dev/null 2>&1
+    if ! grep -q "/swapfile" /etc/fstab; then
+        echo "/swapfile none swap sw 0 0" >> /etc/fstab
+    fi
+fi
+
 # 2. Package updates and essential tooling
 log_step "==> Шаг 2/6: Установка системных зависимостей и утилит..."
 export DEBIAN_FRONTEND=noninteractive
@@ -199,11 +211,9 @@ select_best_sni() {
     log_info "Тестирование доступности и валидация кандидатов маскировки SNI (TLS 1.3 + HTTP/2)..."
     local candidates=(
         "addons.mozilla.org"
-        "www.microsoft.com"
-        "gateway.icloud.com"
         "dl.google.com"
-        "www.apple.com"
-        "teams.microsoft.com"
+        "www.microsoft.com"
+        "speed.cloudflare.com"
     )
     local best_sni=""
     local min_latency=9999
@@ -256,9 +266,13 @@ select_best_sni
 # 3. Operating System Hardening
 log_step "==> Шаг 3/6: Применение харднинга (Fail2ban, UFW, TCP BBR)..."
 
-# 3.1. Kernel Network Tuning (TCP BBR + SYN Cookies + Anti-Spoofing)
+# 3.1. Kernel Network Tuning (TCP BBR + SYN Cookies + Anti-Spoofing + OOM Swap Pressure)
 mkdir -p /etc/sysctl.d
 cat << 'EOF' > /etc/sysctl.d/99-votex.conf
+# Memory management (Swap & Cache Pressure for low-RAM VPS against OOM-Killer)
+vm.swappiness = 10
+vm.vfs_cache_pressure = 50
+
 # TCP BBR Congestion Control & FQ
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
@@ -284,23 +298,23 @@ net.ipv4.tcp_wmem = 4096 65536 16777216
 net.ipv4.tcp_mtu_probing = 1
 EOF
 sysctl --system > /dev/null 2>&1 || true
-log_info "Сетевой стек оптимизирован (TCP BBR активирован)"
+log_info "Сетевой стек и память оптимизированы (TCP BBR + Swap Tuning активированы)"
 
-# 3.2. Fail2ban SSH jail configuration
+# 3.2. Fail2ban SSH jail configuration (Targeted iptables to avoid CGNAT collateral lockout)
 mkdir -p /etc/fail2ban/jail.d
 cat << EOF > /etc/fail2ban/jail.d/votex-ssh.local
 [sshd]
 enabled = true
 port = ${SSH_PORT}
 filter = sshd
-maxretry = 4
+maxretry = 5
 findtime = 600
-bantime = 86400
-banaction = ufw
+bantime = 43200
+banaction = iptables-multiport[port="${SSH_PORT}", protocol=tcp]
 EOF
 systemctl enable --now fail2ban > /dev/null 2>&1 || true
 systemctl restart fail2ban > /dev/null 2>&1 || true
-log_info "Fail2ban активирован: защита порта ${SSH_PORT} от брутфорса (бан на 24ч после 4 ошибок)"
+log_info "Fail2ban активирован: изолированная защита порта SSH ${SSH_PORT} от брутфорса (бан на 12ч после 5 ошибок)"
 
 # 3.3. UFW Firewall configuration
 ufw --force reset > /dev/null 2>&1 || true
@@ -353,6 +367,7 @@ cat << 'EOF' > /etc/systemd/system/xray.service
 Description=Xray Service
 Documentation=https://github.com/xtls
 After=network.target nss-lookup.target
+StartLimitIntervalSec=0
 
 [Service]
 User=root
@@ -360,10 +375,13 @@ CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
-Restart=on-failure
+Restart=always
+RestartSec=3s
+StartLimitIntervalSec=0
 RestartPreventExitStatus=23
 LimitNPROC=10000
 LimitNOFILE=1000000
+OOMScoreAdjust=-500
 
 [Install]
 WantedBy=multi-user.target
@@ -605,6 +623,7 @@ cat << 'EOF' > /etc/systemd/system/hysteria-server.service
 [Unit]
 Description=Hysteria 2 Server
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -612,7 +631,9 @@ User=root
 ExecStart=/usr/local/bin/hysteria server --config /etc/hysteria/config.yaml
 Restart=always
 RestartSec=3s
+StartLimitIntervalSec=0
 LimitNOFILE=65535
+OOMScoreAdjust=-500
 
 [Install]
 WantedBy=multi-user.target
@@ -1758,6 +1779,7 @@ cat << 'EOF' > /etc/systemd/system/votex-subscription.service
 [Unit]
 Description=Votex Subscription Micro-Service
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -1765,7 +1787,9 @@ User=root
 ExecStart=/usr/bin/python3 /etc/votex/sub-service.py /etc/votex/config.json
 Restart=always
 RestartSec=3s
+StartLimitIntervalSec=0
 LimitNOFILE=65535
+OOMScoreAdjust=-500
 
 [Install]
 WantedBy=multi-user.target
@@ -1862,7 +1886,7 @@ echo -e "${GREEN}===============================================================
 echo -e "${GREEN}        VOTEX: НАСТРОЙКА И ХАРДНИНГ УСПЕШНО ЗАВЕРШЕНЫ           ${NC}"
 echo -e "${GREEN}================================================================${NC}"
 echo -e "${CYAN}IP сервера:             ${NC}${SERVER_IP}"
-echo -e "${CYAN}Защита Fail2ban:        ${NC}Активна (SSH порт 22, 4 попытки -> бан 24ч)"
+echo -e "${CYAN}Защита Fail2ban:        ${NC}Активна (SSH порт 22, 5 попыток -> бан 12ч, только порт SSH)"
 echo -e "${CYAN}Фаервол UFW:            ${NC}Включен (Все неиспользуемые порты закрыты)"
 echo -e "${CYAN}TCP BBR Ускорение:      ${NC}Включено (net.core.default_qdisc = fq)"
 echo -e "${CYAN}Маскировка SNI:         ${NC}${REALITY_SNI} (TLS 1.3 / HTTP/2 подтверждены)"

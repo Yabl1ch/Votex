@@ -66,6 +66,7 @@ export interface AppState {
   fetchLiveMetrics: (host?: string, token?: string) => Promise<ServerMetrics | null>;
   regenerateToken: () => Promise<string>;
   rotateServerKeysAction: (passwordOverride?: string) => Promise<string>;
+  restoreSubscriptionAction: (passwordOverride?: string) => Promise<boolean>;
   restartServiceAction: (service: string) => Promise<string>;
   rebootServerAction: () => Promise<string>;
 
@@ -488,6 +489,46 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     await get().loadSavedVpsFromVault();
     return newUrl;
+  },
+
+  restoreSubscriptionAction: async (passwordOverride?: string) => {
+    const host = (get().vpsConfig.host || get().report?.server_ip || "").trim();
+    const port = get().vpsConfig.port || 22;
+    const username = get().vpsConfig.username || "root";
+    const password = passwordOverride || get().vpsConfig.password;
+
+    if (!host) {
+      throw new Error("Не указан IP-адрес сервера");
+    }
+    if (!password) {
+      throw new Error("Для восстановления подписки с сервера требуется пароль SSH");
+    }
+
+    const { invoke } = await import("@tauri-apps/api/core");
+    const restoredReport = await invoke<VotexReport>("restore_subscription_from_server", {
+      host,
+      port,
+      username,
+      password,
+    });
+
+    set({
+      report: restoredReport,
+      isConnected: true,
+      vpsConfig: {
+        ...get().vpsConfig,
+        host: restoredReport.server_ip,
+        port,
+        username,
+        password,
+      },
+    });
+
+    // Also fetch live metrics & quick ping
+    get().fetchLiveMetrics(restoredReport.server_ip, restoredReport.subscription_token);
+    get().quickPing(restoredReport.server_ip, port);
+
+    return true;
   },
 
   restartServiceAction: async (service: string) => {

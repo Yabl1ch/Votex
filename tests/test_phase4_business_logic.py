@@ -188,6 +188,29 @@ class TestPhase4BusinessLogic(unittest.TestCase):
         for proto in protocols:
             self.assertIn(proto, content, f"Missing protocol on dashboard: {proto}")
 
+    def test_subscription_recovery_mechanism(self):
+        """Ensure 1-click subscription recovery is integrated across store, UI, and Tauri backend."""
+        # Store
+        store_path = os.path.join(SRC_DIR, "store", "index.ts")
+        with open(store_path, "r", encoding="utf-8") as f:
+            store_content = f.read()
+        self.assertIn("restoreSubscriptionAction", store_content)
+        self.assertIn("restore_subscription_from_server", store_content)
+
+        # Subscription UI
+        sub_path = os.path.join(PAGES_DIR, "SubscriptionPage.tsx")
+        with open(sub_path, "r", encoding="utf-8") as f:
+            sub_content = f.read()
+        self.assertIn("Восстановить с сервера", sub_content)
+        self.assertIn("Восстановить подписку с сервера", sub_content)
+        self.assertIn("whitespace-nowrap", sub_content)
+
+        # Tauri Backend
+        lib_rs_path = os.path.join(REPO_ROOT, "src-tauri", "src", "lib.rs")
+        with open(lib_rs_path, "r", encoding="utf-8") as f:
+            lib_content = f.read()
+        self.assertIn("restore_subscription_from_server", lib_content)
+
 
 if __name__ == "__main__":
     unittest.main()

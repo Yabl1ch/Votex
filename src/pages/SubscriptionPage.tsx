@@ -12,21 +12,33 @@ import {
   Radio,
   Layers,
   KeyRound,
+  RotateCcw,
 } from "lucide-react";
 import QRCode from "qrcode";
 import { BentoGrid, BentoCard, GlassButton, StatusBadge } from "../components/bento";
 import { useAppStore } from "../store";
 
 export const SubscriptionPage: React.FC = () => {
-  const { report, regenerateToken, rotateServerKeysAction, vpsConfig } = useAppStore();
+  const {
+    report,
+    regenerateToken,
+    rotateServerKeysAction,
+    restoreSubscriptionAction,
+    vpsConfig,
+    setVpsConfig,
+  } = useAppStore();
   const [copiedLink, setCopiedLink] = useState(false);
   const [tokenRegenerating, setTokenRegenerating] = useState(false);
   const [keyRotating, setKeyRotating] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [tokenFeedback, setTokenFeedback] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [pwdInput, setPwdInput] = useState("");
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [restoreHost, setRestoreHost] = useState("");
+  const [restorePwd, setRestorePwd] = useState("");
 
   const subUrl = report?.subscription_url || "";
   const hasSub = Boolean(report && subUrl);
@@ -62,8 +74,41 @@ export const SubscriptionPage: React.FC = () => {
     };
   }, [subUrl]);
 
+  const handleRestoreSubscription = async (overridePwd?: string, overrideHost?: string) => {
+    const host = (overrideHost || restoreHost || vpsConfig.host || report?.server_ip || "").trim();
+    const pwd = overridePwd || restorePwd || vpsConfig.password;
+
+    if (!host || !pwd) {
+      if (host) setRestoreHost(host);
+      setShowRestoreModal(true);
+      return;
+    }
+
+    setRestoring(true);
+    setTokenFeedback(null);
+    try {
+      if (host !== vpsConfig.host) {
+        setVpsConfig({ host });
+      }
+      await restoreSubscriptionAction(pwd);
+      setShowRestoreModal(false);
+      setRestorePwd("");
+      setTokenFeedback("Подписка успешно восстановлена с сервера! Профиль и QR-код обновлены.");
+      setTimeout(() => setTokenFeedback(null), 4500);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setTokenFeedback(`Ошибка восстановления: ${msg}`);
+      setTimeout(() => setTokenFeedback(null), 5000);
+    } finally {
+      setRestoring(false);
+    }
+  };
+
   const handleCopyLink = async () => {
-    if (!subUrl) return;
+    if (!subUrl) {
+      await handleRestoreSubscription();
+      return;
+    }
     try {
       await navigator.clipboard.writeText(subUrl);
       setCopiedLink(true);
@@ -191,7 +236,6 @@ export const SubscriptionPage: React.FC = () => {
                   variant="primary"
                   size="lg"
                   onClick={handleCopyLink}
-                  disabled={!hasSub}
                   icon={copiedLink ? <Check className="w-5 h-5 text-[#06100C]" /> : <Copy className="w-5 h-5" />}
                   className="w-full whitespace-nowrap"
                 >
@@ -199,7 +243,7 @@ export const SubscriptionPage: React.FC = () => {
                     ? "Ссылка скопирована в буфер!"
                     : hasSub
                     ? "Копировать ссылку для Happ"
-                    : "Ссылка недоступна (настройте сервер)"}
+                    : "Восстановить подписку с сервера"}
                 </GlassButton>
                 <span className="text-[11px] text-[#A7F3D0]/70 block mt-1 text-center">
                   Включает 5 протоколов обхода блокировок (Vision, SplitHTTP, gRPC, Hysteria 2, Shadowsocks-2022) с умной маршрутизацией РФ
@@ -207,7 +251,7 @@ export const SubscriptionPage: React.FC = () => {
               </div>
 
               {/* Row 2: Secondary Actions Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                 <GlassButton
                   variant="secondary"
                   size="md"
@@ -217,6 +261,18 @@ export const SubscriptionPage: React.FC = () => {
                   className="w-full whitespace-nowrap text-xs"
                 >
                   {showQr ? "Скрыть QR-код" : "QR-код для телефона"}
+                </GlassButton>
+
+                <GlassButton
+                  variant="secondary"
+                  size="md"
+                  onClick={() => handleRestoreSubscription()}
+                  loading={restoring}
+                  icon={<RotateCcw className={`w-4 h-4 text-[#4ADE80] ${restoring ? "animate-spin" : ""}`} />}
+                  className="w-full whitespace-nowrap text-xs"
+                  title="Восстановить подписку и параметры с сервера"
+                >
+                  Восстановить с сервера
                 </GlassButton>
 
                 <GlassButton
@@ -243,6 +299,49 @@ export const SubscriptionPage: React.FC = () => {
                   Ротация ключей
                 </GlassButton>
               </div>
+
+              {showRestoreModal && (
+                <div className="p-3.5 rounded-xl bg-[rgba(8,20,15,0.95)] border border-[rgba(74,222,128,0.3)] space-y-2.5 mt-2 animate-fadeIn">
+                  <span className="text-xs text-[#A7F3D0] font-medium block">
+                    Восстановление профиля подписки с VPS:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={restoreHost}
+                      onChange={(e) => setRestoreHost(e.target.value)}
+                      placeholder="IP-адрес VPS (например, 185.120.45.10)"
+                      className="px-3 py-1.5 text-xs rounded-lg bg-[rgba(6,16,12,0.8)] border border-[rgba(74,222,128,0.2)] text-[#ECFDF5] focus:outline-none focus:border-[#4ADE80]"
+                    />
+                    <input
+                      type="password"
+                      value={restorePwd}
+                      onChange={(e) => setRestorePwd(e.target.value)}
+                      placeholder="Пароль root SSH"
+                      className="px-3 py-1.5 text-xs rounded-lg bg-[rgba(6,16,12,0.8)] border border-[rgba(74,222,128,0.2)] text-[#ECFDF5] focus:outline-none focus:border-[#4ADE80]"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2 pt-1">
+                    <GlassButton
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowRestoreModal(false)}
+                      className="whitespace-nowrap text-xs"
+                    >
+                      Отмена
+                    </GlassButton>
+                    <GlassButton
+                      variant="primary"
+                      size="sm"
+                      onClick={() => handleRestoreSubscription(restorePwd, restoreHost)}
+                      loading={restoring}
+                      className="whitespace-nowrap text-xs"
+                    >
+                      Восстановить сейчас
+                    </GlassButton>
+                  </div>
+                </div>
+              )}
 
               {showPasswordModal && (
                 <div className="p-3.5 rounded-xl bg-[rgba(8,20,15,0.9)] border border-[rgba(74,222,128,0.3)] space-y-2 mt-2">

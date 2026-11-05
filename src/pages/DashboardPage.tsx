@@ -49,7 +49,10 @@ export const DashboardPage: React.FC = () => {
   }, [serverIp, report?.subscription_token]);
 
   const handleCopyLink = async () => {
-    if (!subUrl) return;
+    if (!subUrl) {
+      setActiveTab("subscription");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(subUrl);
       setCopied(true);
@@ -267,7 +270,6 @@ export const DashboardPage: React.FC = () => {
                 variant="primary"
                 size="md"
                 onClick={handleCopyLink}
-                disabled={!subUrl}
                 icon={copied ? <Check className="w-5 h-5 text-[#06100C]" /> : <Copy className="w-5 h-5" />}
                 className="w-full whitespace-nowrap"
               >
@@ -275,7 +277,7 @@ export const DashboardPage: React.FC = () => {
                   ? "Ссылка скопирована в буфер!"
                   : subUrl
                   ? "Копировать ссылку для Happ"
-                  : "Сначала настройте сервер"}
+                  : "Восстановить подписку с сервера"}
               </GlassButton>
             </div>
 
@@ -289,7 +291,7 @@ export const DashboardPage: React.FC = () => {
                 onClick={() => setActiveTab("subscription")}
                 className="text-[#4ADE80] hover:underline cursor-pointer font-medium"
               >
-                QR-код и параметры
+                Восстановить / QR-код
               </button>
             </div>
           </div>

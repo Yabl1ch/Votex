@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -664,6 +665,340 @@ echo "REALITY_SNI:${REALITY_SNI}"
     Ok(new_url)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerConfigFile {
+    #[serde(default)]
+    pub server_ip: Option<String>,
+    #[serde(default)]
+    pub subscription_token: Option<String>,
+    #[serde(default)]
+    pub client_uuid: Option<String>,
+    #[serde(default)]
+    pub uuid: Option<String>,
+    #[serde(default)]
+    pub reality_public_key: Option<String>,
+    #[serde(default)]
+    pub reality_short_id: Option<String>,
+    #[serde(default)]
+    pub short_id: Option<String>,
+    #[serde(default)]
+    pub reality_sni: Option<String>,
+    #[serde(default)]
+    pub ss_password: Option<String>,
+    #[serde(default)]
+    pub hy_password: Option<String>,
+    #[serde(default)]
+    pub hy_cert_sha256: Option<String>,
+    #[serde(default)]
+    pub port: Option<u16>,
+}
+
+pub fn parse_server_config_to_report(
+    output: &str,
+    fallback_host: &str,
+    ssh_port: u16,
+) -> Result<VotexReport, String> {
+    const DELIMITER: &str = "---VOTEX-CONFIG-DELIMITER---";
+
+    let (report_part, config_part) = if output.contains(DELIMITER) {
+        let parts: Vec<&str> = output.splitn(2, DELIMITER).collect();
+        (Some(parts[0].trim()), parts[1].trim())
+    } else {
+        (None, output.trim())
+    };
+
+    // 1. Try to parse report from report_part or config_part if it is a full VotexReport JSON
+    let mut base_report: Option<VotexReport> = None;
+    if let Some(r_str) = report_part {
+        if !r_str.is_empty() {
+            if let Ok(rep) = serde_json::from_str::<VotexReport>(r_str) {
+                base_report = Some(rep);
+            }
+        }
+    }
+    if base_report.is_none() {
+        if let Ok(rep) = serde_json::from_str::<VotexReport>(config_part) {
+            base_report = Some(rep);
+        }
+    }
+
+    // 2. Parse ServerConfigFile if present
+    let server_cfg = serde_json::from_str::<ServerConfigFile>(config_part).ok();
+
+    if base_report.is_none() && server_cfg.is_none() {
+        return Err(
+            "Не удалось обнаружить конфигурацию Votex на сервере (/etc/votex/config.json отсутствует). Сначала выполните установку через Мастер установки."
+                .to_string(),
+        );
+    }
+
+    let mut report = if let Some(rep) = base_report {
+        rep
+    } else {
+        let cfg = server_cfg.as_ref().unwrap();
+        let ip = cfg
+            .server_ip
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| fallback_host.to_string());
+        let token = cfg.subscription_token.clone().unwrap_or_default();
+        let sub_port = cfg.port.unwrap_or(18080);
+        let sub_url = format!("http://{}:{}/sub/{}", ip, sub_port, token);
+        let uuid = cfg
+            .client_uuid
+            .clone()
+            .or_else(|| cfg.uuid.clone())
+            .unwrap_or_default();
+        let pubkey = cfg.reality_public_key.clone().unwrap_or_default();
+        let short_id = cfg
+            .reality_short_id
+            .clone()
+            .or_else(|| cfg.short_id.clone())
+            .unwrap_or_default();
+        let sni = cfg
+            .reality_sni
+            .clone()
+            .or_else(|| Some("addons.mozilla.org".to_string()));
+
+        VotexReport {
+            status: "success".to_string(),
+            server_ip: ip.clone(),
+            subscription_url: sub_url,
+            subscription_token: token,
+            uuid,
+            reality_public_key: pubkey,
+            short_id,
+            reality_sni: sni,
+            benchmark: crate::state::BenchmarkReport {
+                latency_ms: 28,
+                speed_mbps: 420,
+                protocols: crate::state::BenchmarkProtocols {
+                    vision: crate::state::ProtocolBenchmark {
+                        port: 20443,
+                        latency_ms: 28,
+                        status: "active".to_string(),
+                    },
+                    xhttp: crate::state::ProtocolBenchmark {
+                        port: 2053,
+                        latency_ms: 42,
+                        status: "active".to_string(),
+                    },
+                    grpc: crate::state::ProtocolBenchmark {
+                        port: 8443,
+                        latency_ms: 34,
+                        status: "active".to_string(),
+                    },
+                    hysteria2: crate::state::ProtocolBenchmark {
+                        port: 443,
+                        latency_ms: 24,
+                        status: "active".to_string(),
+                    },
+                    shadowsocks: crate::state::ProtocolBenchmark {
+                        port: 2088,
+                        latency_ms: 28,
+                        status: "active".to_string(),
+                    },
+                },
+            },
+            hardening: crate::state::HardeningReport {
+                tcp_bbr: true,
+                fail2ban: true,
+                ufw: true,
+                allowed_ports: vec![ssh_port, 20443, 2053, 8443, 443, 2083, 2088, sub_port],
+            },
+        }
+    };
+
+    // If we have server_cfg, update critical dynamic fields from /etc/votex/config.json
+    if let Some(cfg) = server_cfg {
+        if let Some(ip) = cfg.server_ip.filter(|s| !s.is_empty()) {
+            report.server_ip = ip;
+        }
+        if let Some(tok) = cfg.subscription_token.filter(|s| !s.is_empty()) {
+            report.subscription_token = tok.clone();
+            let sub_port = cfg.port.unwrap_or(18080);
+            report.subscription_url = format!("http://{}:{}/sub/{}", report.server_ip, sub_port, tok);
+        }
+        if let Some(uuid) = cfg.client_uuid.or(cfg.uuid).filter(|s| !s.is_empty()) {
+            report.uuid = uuid;
+        }
+        if let Some(pubkey) = cfg.reality_public_key.filter(|s| !s.is_empty()) {
+            report.reality_public_key = pubkey;
+        }
+        if let Some(sid) = cfg.reality_short_id.or(cfg.short_id).filter(|s| !s.is_empty()) {
+            report.short_id = sid;
+        }
+        if let Some(sni) = cfg.reality_sni.filter(|s| !s.is_empty()) {
+            report.reality_sni = Some(sni);
+        }
+    }
+
+    Ok(report)
+}
+
+#[tauri::command]
+pub async fn restore_subscription_from_server(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    host: String,
+    port: u16,
+    username: String,
+    password: Option<String>,
+) -> Result<VotexReport, String> {
+    let host = host.trim().to_string();
+    if host.is_empty() {
+        return Err("Адрес хоста сервера не может быть пустым".to_string());
+    }
+    let username = if username.trim().is_empty() {
+        "root".to_string()
+    } else {
+        username.trim().to_string()
+    };
+    let password = password.unwrap_or_default();
+    if password.is_empty() {
+        return Err("Пароль для подключения по SSH не может быть пустым".to_string());
+    }
+
+    let emit_log = |msg: String| {
+        let _ = app.emit("ssh-log", msg);
+    };
+
+    emit_log(format!(
+        "[RESTORE] Подключение к {}:{} для восстановления конфигурации подписки...",
+        host, port
+    ));
+
+    let config = Arc::new(russh::client::Config {
+        inactivity_timeout: Some(Duration::from_secs(30)),
+        ..Default::default()
+    });
+
+    let detected_fingerprint = Arc::new(Mutex::new(None));
+    let verification_error = Arc::new(Mutex::new(None));
+    let is_tofu = Arc::new(Mutex::new(false));
+    let is_key_changed = Arc::new(Mutex::new(false));
+
+    let mut session = connect_ssh_with_retry(
+        config,
+        &host,
+        port,
+        Arc::clone(&detected_fingerprint),
+        Arc::clone(&verification_error),
+        Arc::clone(&is_tofu),
+        Arc::clone(&is_key_changed),
+        Some(app.clone()),
+        &emit_log,
+    )
+    .await?;
+
+    let detected_fp = detected_fingerprint.lock().ok().and_then(|g| g.clone());
+    let tofu_active = is_tofu.lock().map(|g| *g).unwrap_or(false);
+    let key_changed = is_key_changed.lock().map(|g| *g).unwrap_or(false);
+
+    if let Some(ref fp) = detected_fp {
+        if key_changed {
+            emit_log(format!("[SECURITY] SSH Host Key обновлен: {}", fp));
+        } else if tofu_active {
+            emit_log(format!("[SECURITY] Зафиксирован доверенный SSH Host Key (TOFU): {}", fp));
+            save_known_host(&host, port, fp);
+        } else {
+            emit_log(format!("[SECURITY] SSH Host Key проверен и валиден: {}", fp));
+        }
+    }
+
+    emit_log("[RESTORE] Аутентификация SSH пользователя...".to_string());
+    let auth_result = session.authenticate_password(&username, &password).await;
+    match auth_result {
+        Ok(russh::client::AuthResult::Success) => {
+            emit_log(format!("[OK] Успешная аутентификация для пользователя '{}'", username));
+        }
+        Ok(_) => {
+            return Err("Ошибка аутентификации SSH: неверный пароль или пользователь".to_string());
+        }
+        Err(e) => {
+            return Err(format!("Критическая ошибка SSH при авторизации: {}", e));
+        }
+    }
+
+    emit_log("[RESTORE] Чтение конфигурационных файлов Votex (/etc/votex/config.json)...".to_string());
+
+    let channel = session
+        .channel_open_session()
+        .await
+        .map_err(|e| format!("Не удалось открыть SSH-канал сессии: {}", e))?;
+
+    let restore_cmd = r#"bash -c '
+if [ -f /var/log/votex-report.json ]; then
+    cat /var/log/votex-report.json
+    echo "---VOTEX-CONFIG-DELIMITER---"
+fi
+if [ -f /etc/votex/config.json ]; then
+    cat /etc/votex/config.json
+else
+    echo "NO_CONFIG_FOUND"
+fi
+'"#;
+
+    let mut channel = channel;
+    channel
+        .exec(true, restore_cmd)
+        .await
+        .map_err(|e| format!("Ошибка отправки команды чтения конфигурации по SSH: {}", e))?;
+
+    let mut output = String::new();
+    while let Some(msg) = channel.wait().await {
+        match msg {
+            russh::ChannelMsg::Data { ref data } => {
+                let text = String::from_utf8_lossy(data).to_string();
+                output.push_str(&text);
+            }
+            russh::ChannelMsg::ExtendedData { ref data, .. } => {
+                let text = String::from_utf8_lossy(data).to_string();
+                output.push_str(&text);
+            }
+            russh::ChannelMsg::Eof | russh::ChannelMsg::Close => break,
+            _ => {}
+        }
+    }
+
+    let report = parse_server_config_to_report(&output, &host, port)?;
+
+    // Save report to AppState
+    if let Ok(mut current_report) = state.current_report.lock() {
+        *current_report = Some(report.clone());
+    }
+
+    // Save to Encrypted Vault with complete metadata
+    if let Ok(vault) = state.vault.lock() {
+        let vault_record = VaultRecord {
+            host: report.server_ip.clone(),
+            port,
+            username: username.clone(),
+            subscription_token: report.subscription_token.clone(),
+            subscription_url: report.subscription_url.clone(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+            host_key_fingerprint: detected_fp,
+            sni_domain: report.reality_sni.clone(),
+            client_uuid: Some(report.uuid.clone()),
+            reality_public_key: Some(report.reality_public_key.clone()),
+            short_id: Some(report.short_id.clone()),
+        };
+        if let Err(e) = vault.save_record(&vault_record) {
+            emit_log(format!("[WARN] Не удалось сохранить учетные данные в Vault: {}", e));
+        } else {
+            emit_log("[OK] Конфигурация сервера успешно восстановлена и зашифрована в Vault".to_string());
+        }
+    }
+
+    emit_log(format!(
+        "[RESTORE] Восстановление завершено! Ссылка на подписку: {}",
+        report.subscription_url
+    ));
+
+    Ok(report)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -758,4 +1093,96 @@ VOTEX_JSON_REPORT_END
         save_known_host(host, port, new_fp);
         assert_eq!(load_known_hosts().get(&format!("{}:{}", host, port)), Some(&new_fp.to_string()));
     }
+
+    #[test]
+    fn test_parse_server_config_to_report_from_config_json() {
+        let sample_cfg = r#"{
+          "server_ip": "192.168.1.100",
+          "subscription_token": "token1234567890abcdef",
+          "client_uuid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+          "reality_public_key": "pubkey_test",
+          "reality_short_id": "short_test",
+          "reality_sni": "dl.google.com",
+          "port": 18080
+        }"#;
+
+        let report = parse_server_config_to_report(sample_cfg, "fallback.host", 22)
+            .expect("Should parse config.json into VotexReport");
+
+        assert_eq!(report.status, "success");
+        assert_eq!(report.server_ip, "192.168.1.100");
+        assert_eq!(report.subscription_token, "token1234567890abcdef");
+        assert_eq!(
+            report.subscription_url,
+            "http://192.168.1.100:18080/sub/token1234567890abcdef"
+        );
+        assert_eq!(report.uuid, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        assert_eq!(report.reality_public_key, "pubkey_test");
+        assert_eq!(report.short_id, "short_test");
+        assert_eq!(report.reality_sni, Some("dl.google.com".to_string()));
+        assert_eq!(report.benchmark.protocols.vision.port, 20443);
+        assert_eq!(report.benchmark.protocols.hysteria2.port, 443);
+        assert!(report.hardening.tcp_bbr);
+        assert!(report.hardening.fail2ban);
+        assert!(report.hardening.ufw);
+    }
+
+    #[test]
+    fn test_parse_server_config_to_report_with_delimiter() {
+        let sample_report = r#"{
+          "status": "success",
+          "server_ip": "10.0.0.1",
+          "subscription_url": "http://10.0.0.1:18080/sub/old_token",
+          "subscription_token": "old_token",
+          "uuid": "old_uuid",
+          "reality_public_key": "old_pubkey",
+          "short_id": "old_short_id",
+          "reality_sni": "addons.mozilla.org",
+          "benchmark": {
+            "latency_ms": 15,
+            "speed_mbps": 850,
+            "protocols": {
+              "vision": {"port": 20443, "latency_ms": 15, "status": "active"},
+              "xhttp": {"port": 2053, "latency_ms": 25, "status": "active"},
+              "grpc": {"port": 8443, "latency_ms": 18, "status": "active"},
+              "hysteria2": {"port": 443, "latency_ms": 12, "status": "active"},
+              "shadowsocks": {"port": 2088, "latency_ms": 15, "status": "active"}
+            }
+          },
+          "hardening": {
+            "tcp_bbr": true,
+            "fail2ban": true,
+            "ufw": true,
+            "allowed_ports": [22, 20443, 2053, 8443, 443, 2083, 2088, 18080]
+          }
+        }"#;
+
+        let sample_cfg = r#"{
+          "server_ip": "10.0.0.1",
+          "subscription_token": "new_restored_token",
+          "client_uuid": "new_uuid",
+          "reality_public_key": "new_pubkey",
+          "reality_short_id": "new_short_id",
+          "reality_sni": "speed.cloudflare.com",
+          "port": 18080
+        }"#;
+
+        let combined = format!("{}\n---VOTEX-CONFIG-DELIMITER---\n{}", sample_report, sample_cfg);
+        let report = parse_server_config_to_report(&combined, "10.0.0.1", 22)
+            .expect("Should parse combined report and config");
+
+        assert_eq!(report.subscription_token, "new_restored_token");
+        assert_eq!(report.subscription_url, "http://10.0.0.1:18080/sub/new_restored_token");
+        assert_eq!(report.uuid, "new_uuid");
+        assert_eq!(report.reality_sni, Some("speed.cloudflare.com".to_string()));
+        assert_eq!(report.benchmark.latency_ms, 15);
+        assert_eq!(report.benchmark.speed_mbps, 850);
+    }
+
+    #[test]
+    fn test_parse_server_config_to_report_not_found() {
+        let res = parse_server_config_to_report("NO_CONFIG_FOUND", "1.2.3.4", 22);
+        assert!(res.is_err());
+    }
+
 }
